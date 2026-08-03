@@ -15,8 +15,10 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, index=True)  # pelamar, perusahaan, kampus, admin
     avatar_url = Column(String(500))
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=False)
     email_verified_at = Column(DateTime(timezone=True))
+    otp_code = Column(String(6), nullable=True)
+    otp_expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -62,7 +64,7 @@ class PerusahaanProfile(Base):
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
     nama_perusahaan = Column(String(255), nullable=False)
     industri = Column(String(100))
-    ukuran = Column(String(20))
+    ukuran = Column(String(100))
     deskripsi = Column(Text)
     alamat = Column(Text)
     kota = Column(String(100))
@@ -71,6 +73,12 @@ class PerusahaanProfile(Base):
     logo_url = Column(String(500))
     no_telepon = Column(String(20))
     tahun_berdiri = Column(Integer)
+    nib_number = Column(String(255))
+    nib_document_url = Column(String(500))
+    hr_name = Column(String(255))
+    hr_whatsapp = Column(String(20))
+    hr_position = Column(String(100))
+    hr_id_card_url = Column(String(500))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

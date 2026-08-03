@@ -21,8 +21,13 @@ class RegisterRequest(BaseModel):
                 "role": "pelamar"
             }
         }
+class RegisterResponse(BaseModel):
+    status: str
+    message: str
 
-
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp_code: str
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str

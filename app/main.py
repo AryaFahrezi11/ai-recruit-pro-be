@@ -5,6 +5,8 @@ Entry point aplikasi FastAPI
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
 
 from app.core.config import settings
 from app.services.embedding_service import EmbeddingService
@@ -50,11 +52,21 @@ app = FastAPI(
 # ============================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL],
+    allow_origins=[
+        settings.FRONTEND_URL,
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ============================================
+# Static Files (untuk upload dokumen)
+# ============================================
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # ============================================
 # Register Routers

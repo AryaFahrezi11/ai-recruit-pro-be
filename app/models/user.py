@@ -64,7 +64,7 @@ class PerusahaanProfile(Base):
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
     nama_perusahaan = Column(String(255), nullable=False)
     industri = Column(String(100))
-    ukuran = Column(String(20))
+    ukuran = Column(String(100))
     deskripsi = Column(Text)
     alamat = Column(Text)
     kota = Column(String(100))

@@ -1,0 +1,28 @@
+# ============================================
+# AI Recruit Pro - Backend Dependencies
+# ============================================
+
+# --- Framework ---
+fastapi
+uvicorn[standard]
+
+# --- Database (SQLite untuk development) ---
+sqlalchemy
+aiosqlite
+
+# --- Auth & Security ---
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+
+# --- AI / NLP ---
+sentence-transformers
+scikit-learn
+
+# --- PDF Processing ---
+PyPDF2
+
+# --- Utilities ---
+pydantic[email]
+pydantic-settings
+python-dotenv

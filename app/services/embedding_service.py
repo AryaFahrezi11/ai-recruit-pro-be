@@ -24,12 +24,12 @@ class EmbeddingService:
     def __init__(self):
         """Memuat model SBERT ke RAM."""
         self.model_name = settings.SBERT_MODEL_NAME
-        print(f"⏳ Loading model: {self.model_name}")
+        print(f"[INFO] Loading model: {self.model_name}")
         start = time.time()
         self.model = SentenceTransformer(self.model_name)
         elapsed = time.time() - start
-        print(f"✅ Model dimuat dalam {elapsed:.2f} detik")
-        print(f"📐 Dimensi embedding: {self.model.get_sentence_embedding_dimension()}")
+        print(f"[OK] Model dimuat dalam {elapsed:.2f} detik")
+        print(f"[INFO] Dimensi embedding: {self.model.get_sentence_embedding_dimension()}")
 
     def get_embedding(self, text: str) -> list[float]:
         """

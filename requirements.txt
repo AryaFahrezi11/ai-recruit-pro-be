@@ -6,13 +6,14 @@
 fastapi
 uvicorn[standard]
 
-# --- Database (SQLite untuk development) ---
+# --- Database (PostgreSQL / Supabase) ---
 sqlalchemy
-aiosqlite
+asyncpg
+psycopg2-binary
 
 # --- Auth & Security ---
 python-jose[cryptography]
-passlib[bcrypt]
+bcrypt
 python-multipart
 
 # --- AI / NLP ---

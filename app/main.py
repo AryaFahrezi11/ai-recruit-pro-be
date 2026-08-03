@@ -8,23 +8,31 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.services.embedding_service import EmbeddingService
+from app.core.database import engine, Base
+from app.models import *  # Memastikan semua model ter-load sebelum create_all
 
 # ============================================
-# Lifespan: Load model AI saat server start
+# Lifespan: Load model AI & Init DB saat server start
 # ============================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Memuat model AI ke RAM saat server pertama kali dijalankan.
-    Model akan tetap di RAM selama server aktif.
+    Memuat model AI ke RAM dan inisialisasi database.
     """
-    print("⏳ Memuat model AI...")
+    # 1. Inisialisasi Database
+    print("[INFO] Membuat tabel database (jika belum ada)...")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    print("[OK] Database siap!")
+
+    # 2. Load Model AI
+    print("[INFO] Memuat model AI...")
     app.state.embedding_service = EmbeddingService()
-    print(f"✅ Model '{settings.SBERT_MODEL_NAME}' berhasil dimuat!")
-    print(f"🚀 AI Recruit Pro Backend siap menerima request!")
+    print(f"[OK] Model '{settings.SBERT_MODEL_NAME}' berhasil dimuat!")
+    print(f"[OK] AI Recruit Pro Backend siap menerima request!")
     yield
     # Cleanup saat server mati
-    print("👋 Server dimatikan. Model AI di-unload dari RAM.")
+    print("[INFO] Server dimatikan. Model AI di-unload dari RAM.")
 
 
 # ============================================
@@ -68,7 +76,7 @@ async def root():
     return {
         "nama": settings.APP_NAME,
         "versi": settings.APP_VERSION,
-        "status": "🟢 Online",
+        "status": "Online",
         "docs": "/docs",
     }
 

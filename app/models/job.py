@@ -41,6 +41,15 @@ class JobPosting(Base):
     status = Column(String(10), default="draft", index=True)
     tanggal_buka = Column(Date)
     tanggal_tutup = Column(Date)
+    
+    # New Columns for Frontend Form
+    department = Column(String(100))
+    experience_level = Column(String(100))
+    benefits_json = Column(Text)
+    ai_keywords_json = Column(Text)
+    video_questions_json = Column(Text)
+    openings_count = Column(Integer, default=1)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     

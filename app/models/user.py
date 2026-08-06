@@ -16,6 +16,7 @@ class User(Base):
     role = Column(String(20), nullable=False, index=True)  # pelamar, perusahaan, kampus, admin
     avatar_url = Column(String(500))
     is_active = Column(Boolean, default=False)
+    is_banned = Column(Boolean, default=False)
     email_verified_at = Column(DateTime(timezone=True))
     otp_code = Column(String(6), nullable=True)
     otp_expires_at = Column(DateTime(timezone=True), nullable=True)
@@ -66,6 +67,7 @@ class PerusahaanProfile(Base):
     industri = Column(String(100))
     ukuran = Column(String(100))
     deskripsi = Column(Text)
+    is_verified = Column(Boolean, default=False)
     alamat = Column(Text)
     kota = Column(String(100))
     provinsi = Column(String(100))
@@ -108,3 +110,21 @@ class KampusProfile(Base):
 
     # Relationships
     user = relationship("User", back_populates="kampus_profile")
+
+
+class PerusahaanSettings(Base):
+    __tablename__ = "perusahaan_settings"
+    
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    ai_default_threshold = Column(Integer, default=80)
+    auto_invite_interview = Column(Boolean, default=True)
+    auto_archive_rejected = Column(Boolean, default=True)
+    video_weights_json = Column(Text, default='{"ability":20,"intelligent":20,"personality":20,"attitude":20,"emotionalIntelligence":20}')
+    email_invitation_subject = Column(String, default="[AI Recruit Pro] Undangan Wawancara Video Virtual - {{job_title}}")
+    email_invitation_body = Column(Text, default="Halo {{candidate_name}}, Selamat! CV Anda telah lolos tahap seleksi awal (PO-FIT). Silakan ikuti tautan berikut untuk merekam wawancara video virtual 5 pertanyaan: {{interview_link}}")
+    email_hire_subject = Column(String, default="[AI Recruit Pro] Selamat! Anda Diterima di {{company_name}}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User", backref="perusahaan_settings")

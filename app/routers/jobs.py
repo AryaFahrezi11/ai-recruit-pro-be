@@ -16,6 +16,26 @@ from app.schemas.job import JobPostingCreate, JobPostingResponse
 
 router = APIRouter()
 
+async def get_current_user(current_user: dict = Depends(verify_token)):
+    return current_user
+
+@router.get("/categories")
+async def get_job_categories(db: AsyncSession = Depends(get_db)):
+    """Mendapatkan daftar semua kategori lowongan kerja."""
+    service = JobService(db)
+    return await service.get_categories()
+
+@router.get("/my-jobs", response_model=List[JobPostingResponse])
+async def get_my_jobs(current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Mendapatkan daftar semua lowongan milik perusahaan yang sedang login."""
+    service = JobService(db)
+    return await service.get_my_jobs(current_user["sub"])
+
+@router.put("/{job_id}", response_model=JobPostingResponse)
+async def update_job(job_id: str, job_data: JobPostingCreate, current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Mengupdate data lowongan kerja."""
+    service = JobService(db)
+    return await service.update_job(current_user["sub"], job_id, job_data)
 
 @router.get("/")
 async def get_jobs(
@@ -227,6 +247,8 @@ async def create_job(
         },
     }
 
+class StatusUpdate(BaseModel):
+    status: str
 
 @router.put("/{job_id}")
 async def update_job(

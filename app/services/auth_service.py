@@ -4,7 +4,7 @@ Logika bisnis untuk autentikasi.
 Akan diimplementasi setelah database siap.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
+from sqlalchemy import select
 from fastapi import HTTPException, status
 
 from datetime import datetime, timedelta, timezone

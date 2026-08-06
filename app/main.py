@@ -71,13 +71,15 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 # ============================================
 # Register Routers
 # ============================================
-from app.routers import auth, users, jobs, applications, analysis
+from app.routers import auth, users, jobs, applications, analysis, admin, perusahaan
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(applications.router, prefix="/api/applications", tags=["Applications"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["AI Analysis"])
+app.include_router(admin.router, prefix="/api/admin", tags=["Admin Developer"])
+app.include_router(perusahaan.router, prefix="/api/perusahaan", tags=["Perusahaan"])
 
 
 # ============================================

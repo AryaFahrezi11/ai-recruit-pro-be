@@ -48,6 +48,11 @@ class PelamarProfile(Base):
     ringkasan_diri = Column(Text)
     linkedin_url = Column(String(500))
     portfolio_url = Column(String(500))
+    judul_posisi = Column(String(255))
+    keahlian = Column(Text)
+    sertifikasi = Column(Text)
+    pengalaman_kerja = Column(Text)
+    riwayat_pendidikan = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

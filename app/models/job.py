@@ -51,3 +51,15 @@ class JobPosting(Base):
     perusahaan = relationship("PerusahaanProfile", back_populates="job_postings")
     kategori = relationship("JobCategory", back_populates="job_postings")
     applications = relationship("Application", back_populates="job", cascade="all, delete-orphan")
+
+
+class SavedJob(Base):
+    __tablename__ = "saved_jobs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    pelamar_id = Column(String, ForeignKey("pelamar_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    job_id = Column(String, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    pelamar = relationship("PelamarProfile")

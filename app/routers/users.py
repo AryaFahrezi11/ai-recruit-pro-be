@@ -1,38 +1,25 @@
 """
 🛣️ Users Router
-Endpoint: GET /api/users/profile, PUT /api/users/profile
+Endpoint: GET /api/users/profile, PUT /api/users/profile, POST /api/users/cv/upload
 """
-from fastapi import APIRouter, Body, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-
-from app.core.database import get_db
-from app.core.security import verify_token
-from app.models.user import User, PelamarProfile, PerusahaanProfile, KampusProfile
-from app.schemas.user import PelamarProfileUpdate, PerusahaanProfileUpdate
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Body, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
+from typing import Optional
 import os
 import uuid
 import shutil
+import json
 
-from app.core.security import verify_token
 from app.core.database import get_db
+from app.core.security import verify_token
 from app.models.user import User, PelamarProfile, PerusahaanProfile, KampusProfile
+from app.models.application import CVDocument
 from app.schemas.user import PelamarProfileUpdate, PerusahaanProfileUpdate
-from pydantic import BaseModel
-from typing import Union, Optional
 
 router = APIRouter()
 
-class ProfileUpdateRequest(BaseModel):
-    # This is a generic request schema that can accept fields for any profile type
-    nama_perusahaan: str | None = None
-    alamat: str | None = None
-    no_telepon: str | None = None
-    # Add more fields as needed
 
 @router.get("/profile")
 async def get_profile(
@@ -95,6 +82,11 @@ async def get_profile(
             "ringkasan_diri": p.ringkasan_diri,
             "linkedin_url": p.linkedin_url,
             "portfolio_url": p.portfolio_url,
+            "judul_posisi": p.judul_posisi,
+            "keahlian": p.keahlian,
+            "sertifikasi": p.sertifikasi,
+            "pengalaman_kerja": p.pengalaman_kerja,
+            "riwayat_pendidikan": p.riwayat_pendidikan,
         }
     elif role == "perusahaan" and user.perusahaan_profile:
         c = user.perusahaan_profile
@@ -111,6 +103,10 @@ async def get_profile(
             "logo_url": c.logo_url,
             "no_telepon": c.no_telepon,
             "tahun_berdiri": c.tahun_berdiri,
+            "nib_number": c.nib_number,
+            "hr_name": c.hr_name,
+            "hr_whatsapp": c.hr_whatsapp,
+            "hr_position": c.hr_position,
         }
     elif role == "kampus" and user.kampus_profile:
         k = user.kampus_profile
@@ -140,70 +136,53 @@ async def update_profile(
     current_user: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
 ):
-    
-    # Mengupdate profil user yang sedang login.
-    # Field yang dikirim akan diupdate, field yang tidak dikirim tidak berubah.
-    return {
-        "user_id": current_user.get("sub"),
-        "role": current_user.get("role"),
-        "message": "Endpoint profil - akan diimplementasi penuh nanti"
-    }
-
-@router.put("/profile")
-async def update_profile(
-    nama_perusahaan: Optional[str] = Form(None),
-    industri: Optional[str] = Form(None),
-    ukuran: Optional[str] = Form(None),
-    website_url: Optional[str] = Form(None),
-    alamat: Optional[str] = Form(None),
-    no_telepon: Optional[str] = Form(None),
-    nib_number: Optional[str] = Form(None),
-    hr_name: Optional[str] = Form(None),
-    hr_whatsapp: Optional[str] = Form(None),
-    hr_position: Optional[str] = Form(None),
-    nib_file: Optional[UploadFile] = File(None),
-    id_card_file: Optional[UploadFile] = File(None),
-    current_user: dict = Depends(verify_token),
-    db: AsyncSession = Depends(get_db)
-):
-    
-    # Mengupdate profil user yang sedang login menggunakan FormData.
+    """
+    Mengupdate profil user yang sedang login di database PostgreSQL.
+    Mendukung role pelamar, perusahaan, dan kampus.
+    """
     user_id = current_user.get("sub")
     role = current_user.get("role")
 
-    # Update field user dasar (avatar_url)
-    user_fields = {}
-    if "avatar_url" in update_data:
-        user_fields["avatar_url"] = update_data.pop("avatar_url")
+    # Fetch User
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User tidak ditemukan",
+        )
 
-    if user_fields:
-        result = await db.execute(select(User).where(User.id == user_id))
-        user = result.scalars().first()
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User tidak ditemukan",
-            )
-        for key, value in user_fields.items():
-            setattr(user, key, value)
+    # Update User base fields if provided
+    if "avatar_url" in update_data and update_data["avatar_url"] is not None:
+        user.avatar_url = update_data["avatar_url"]
 
-    # Update profil spesifik berdasarkan role
+    # Update role-specific profile
     if role == "pelamar":
-        result = await db.execute(
+        res_p = await db.execute(
             select(PelamarProfile).where(PelamarProfile.user_id == user_id)
         )
-        profile = result.scalars().first()
-        if not profile:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Profil pelamar tidak ditemukan",
-            )
+        profile = res_p.scalars().first()
 
-        # Validasi dengan schema
-        valid_fields = PelamarProfileUpdate.model_fields.keys()
-        for key, value in update_data.items():
-            if key in valid_fields:
-                setattr(profile, key, value)
+        if not profile:
+            profile = PelamarProfile(
+                user_id=user_id,
+                nama_lengkap=update_data.get("nama_lengkap") or user.email.split("@")[0]
+            )
+            db.add(profile)
+
+        pelamar_fields = [
+            "nama_lengkap", "no_telepon", "tanggal_lahir", "jenis_kelamin",
+            "alamat", "kota", "provinsi", "pendidikan_terakhir",
+            "institusi_pendidikan", "jurusan", "tahun_lulus", "ipk",
+            "ringkasan_diri", "linkedin_url", "portfolio_url",
+            "judul_posisi", "keahlian", "sertifikasi", "pengalaman_kerja", "riwayat_pendidikan"
+        ]
+        for key in pelamar_fields:
+            if key in update_data and update_data[key] is not None:
+                val = update_data[key]
+                if isinstance(val, (list, dict)):
+                    val = json.dumps(val)
+                setattr(profile, key, val)
 
     elif role == "perusahaan":
         result = await db.execute(
@@ -222,60 +201,90 @@ async def update_profile(
                 setattr(profile, key, value)
 
     elif role == "kampus":
-        result = await db.execute(
+        res_k = await db.execute(
             select(KampusProfile).where(KampusProfile.user_id == user_id)
         )
-        profile = result.scalars().first()
-        if not profile:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Profil kampus tidak ditemukan",
-            )
+        profile = res_k.scalars().first()
 
-        # Kampus fields - update langsung
+        if not profile:
+            profile = KampusProfile(
+                user_id=user_id,
+                nama_kampus=update_data.get("nama_kampus") or "Kampus"
+            )
+            db.add(profile)
+
         kampus_fields = [
             "nama_kampus", "jenis", "alamat", "kota", "provinsi",
             "website_url", "logo_url", "akreditasi", "nama_pic",
-            "jabatan_pic", "no_telepon_pic",
+            "jabatan_pic", "no_telepon_pic"
         ]
-        for key, value in update_data.items():
-            if key in kampus_fields:
-                setattr(profile, key, value)
+        for key in kampus_fields:
+            if key in update_data and update_data[key] is not None:
+                setattr(profile, key, update_data[key])
 
-    return {"message": "Profil berhasil diupdate", "role": role}
-    if role == "perusahaan":
-        result = await db.execute(select(PerusahaanProfile).where(PerusahaanProfile.user_id == user_id))
-        profile = result.scalars().first()
-        if not profile:
-            raise HTTPException(status_code=404, detail="Profil tidak ditemukan")
-        
-        # Helper function to save file
-        def save_upload(file_upload: UploadFile) -> str:
-            ext = file_upload.filename.split('.')[-1]
-            filename = f"{uuid.uuid4()}.{ext}"
-            filepath = os.path.join("uploads", filename)
-            with open(filepath, "wb") as buffer:
-                shutil.copyfileobj(file_upload.file, buffer)
-            return f"/uploads/{filename}"
+    await db.commit()
+    return {"message": "CV Berhasil Disimpan", "status": "success", "role": role}
 
-        if nama_perusahaan is not None: profile.nama_perusahaan = nama_perusahaan
-        if industri is not None: profile.industri = industri
-        if ukuran is not None: profile.ukuran = ukuran
-        if website_url is not None: profile.website_url = website_url
-        if alamat is not None: profile.alamat = alamat
-        if no_telepon is not None: profile.no_telepon = no_telepon
-        if nib_number is not None: profile.nib_number = nib_number
-        if hr_name is not None: profile.hr_name = hr_name
-        if hr_whatsapp is not None: profile.hr_whatsapp = hr_whatsapp
-        if hr_position is not None: profile.hr_position = hr_position
-        
-        if nib_file is not None:
-            profile.nib_document_url = save_upload(nib_file)
-            
-        if id_card_file is not None:
-            profile.hr_id_card_url = save_upload(id_card_file)
-            
-        await db.commit()
-        return {"message": "Profil perusahaan berhasil diupdate"}
-        
-    return {"message": "Role tidak didukung untuk update saat ini"}
+
+@router.post("/cv/upload")
+async def upload_cv_document(
+    cv_file: UploadFile = File(...),
+    current_user: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Mengunggah berkas CV PDF pelamar dan menyimpannya ke tabel database cv_documents.
+    """
+    user_id = current_user.get("sub")
+    role = current_user.get("role")
+
+    if role != "pelamar":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya pelamar yang dapat mengunggah berkas CV",
+        )
+
+    # Get PelamarProfile
+    res = await db.execute(select(PelamarProfile).where(PelamarProfile.user_id == user_id))
+    profile = res.scalars().first()
+
+    if not profile:
+        profile = PelamarProfile(
+            user_id=user_id,
+            nama_lengkap=current_user.get("email", "").split("@")[0] or "Pelamar"
+        )
+        db.add(profile)
+        await db.flush()
+
+    # Save PDF file to /uploads directory
+    os.makedirs("uploads", exist_ok=True)
+    ext = cv_file.filename.split(".")[-1] if "." in cv_file.filename else "pdf"
+    filename = f"cv_{uuid.uuid4()}.{ext}"
+    filepath = os.path.join("uploads", filename)
+
+    with open(filepath, "wb") as buffer:
+        shutil.copyfileobj(cv_file.file, buffer)
+
+    file_url = f"/uploads/{filename}"
+    file_size_kb = int(os.path.getsize(filepath) / 1024) if os.path.exists(filepath) else 0
+
+    # Save to cv_documents database table
+    cv_doc = CVDocument(
+        pelamar_id=profile.id,
+        nama_file=cv_file.filename,
+        file_url=file_url,
+        file_type=ext.lower(),
+        file_size_kb=file_size_kb,
+        extracted_text=f"File CV: {cv_file.filename}"
+    )
+    db.add(cv_doc)
+    await db.commit()
+    await db.refresh(cv_doc)
+
+    return {
+        "message": "CV Berhasil Disimpan",
+        "status": "success",
+        "cv_id": cv_doc.id,
+        "nama_file": cv_doc.nama_file,
+        "file_url": cv_doc.file_url
+    }

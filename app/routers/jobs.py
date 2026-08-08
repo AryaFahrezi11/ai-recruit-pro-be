@@ -3,6 +3,9 @@
 Endpoint: CRUD /api/jobs
 """
 import json
+from datetime import datetime
+from typing import List, Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
@@ -13,6 +16,7 @@ from app.core.security import verify_token
 from app.models.user import PerusahaanProfile
 from app.models.job import JobPosting, JobCategory
 from app.schemas.job import JobPostingCreate, JobPostingResponse
+from app.services.job_service import JobService
 
 router = APIRouter()
 
@@ -31,12 +35,6 @@ async def get_my_jobs(current_user: dict = Depends(get_current_user), db: AsyncS
     service = JobService(db)
     return await service.get_my_jobs(current_user["sub"])
 
-@router.put("/{job_id}", response_model=JobPostingResponse)
-async def update_job(job_id: str, job_data: JobPostingCreate, current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Mengupdate data lowongan kerja."""
-    service = JobService(db)
-    return await service.update_job(current_user["sub"], job_id, job_data)
-
 @router.get("/")
 async def get_jobs(
     db: AsyncSession = Depends(get_db),
@@ -49,8 +47,11 @@ async def get_jobs(
     """Mendapatkan daftar semua lowongan kerja yang aktif."""
     query = (
         select(JobPosting)
-        .options(selectinload(JobPosting.perusahaan))
-        .where(JobPosting.status == "aktif")
+        .options(
+            selectinload(JobPosting.perusahaan),
+            selectinload(JobPosting.kategori)
+        )
+        .where(JobPosting.status == "active")
     )
 
     # Filter pencarian
@@ -97,6 +98,14 @@ async def get_jobs(
             "tanggal_buka": str(job.tanggal_buka) if job.tanggal_buka else None,
             "tanggal_tutup": str(job.tanggal_tutup) if job.tanggal_tutup else None,
             "created_at": str(job.created_at) if job.created_at else None,
+            
+            # New fields
+            "department": job.department,
+            "experience_level": job.experience_level,
+            "benefits_json": job.benefits_json,
+            "ai_keywords_json": job.ai_keywords_json,
+            "video_questions_json": job.video_questions_json,
+            "openings_count": job.openings_count,
         }
         # Tambahkan info perusahaan
         if job.perusahaan:
@@ -106,10 +115,78 @@ async def get_jobs(
                 "industri": job.perusahaan.industri,
                 "logo_url": job.perusahaan.logo_url,
                 "kota": job.perusahaan.kota,
+                "deskripsi": job.perusahaan.deskripsi,
+                "ukuran": job.perusahaan.ukuran,
+                "alamat": job.perusahaan.alamat,
+                "website_url": job.perusahaan.website_url,
+            }
+        if job.kategori:
+            job_dict["kategori"] = {
+                "id": job.kategori.id,
+                "nama_kategori": job.kategori.nama_kategori,
             }
         data.append(job_dict)
 
     return {"message": "Daftar lowongan kerja", "total": len(data), "data": data}
+
+
+@router.get("/saved", response_model=List[dict])
+async def get_saved_jobs(current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Mendapatkan daftar lowongan yang disimpan oleh pelamar."""
+    service = JobService(db)
+    # the frontend expects a list of jobs with their IDs, which get_saved_jobs returns.
+    # since response_model is List[dict], we can just return it or rely on FastAPI to serialize.
+    jobs = await service.get_saved_jobs(current_user["sub"])
+    
+    # Format the same way as get_jobs
+    data = []
+    for job in jobs:
+        job_dict = {
+            "id": job.id,
+            "judul_posisi": job.judul_posisi,
+            "deskripsi_pekerjaan": job.deskripsi_pekerjaan,
+            "kualifikasi": job.kualifikasi,
+            "tanggung_jawab": job.tanggung_jawab,
+            "tipe_pekerjaan": job.tipe_pekerjaan,
+            "lokasi_kerja": job.lokasi_kerja,
+            "kota": job.kota,
+            "gaji_min": float(job.gaji_min) if job.gaji_min else None,
+            "gaji_max": float(job.gaji_max) if job.gaji_max else None,
+            "tampilkan_gaji": job.tampilkan_gaji,
+            "pengalaman_min_tahun": job.pengalaman_min_tahun,
+            "pendidikan_min": job.pendidikan_min,
+            "cv_threshold": float(job.cv_threshold) if job.cv_threshold else None,
+            "status": job.status,
+            "tanggal_buka": str(job.tanggal_buka) if job.tanggal_buka else None,
+            "tanggal_tutup": str(job.tanggal_tutup) if job.tanggal_tutup else None,
+            "created_at": str(job.created_at) if job.created_at else None,
+        }
+        if job.perusahaan:
+            job_dict["perusahaan"] = {
+                "id": job.perusahaan.id,
+                "nama_perusahaan": job.perusahaan.nama_perusahaan,
+                "industri": job.perusahaan.industri,
+                "logo_url": job.perusahaan.logo_url,
+                "kota": job.perusahaan.kota,
+            }
+        data.append(job_dict)
+    return data
+
+@router.post("/{job_id}/save")
+async def save_job(job_id: str, current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Menyimpan lowongan (bookmark)."""
+    if current_user.get("role") != "pelamar":
+        raise HTTPException(status_code=403, detail="Hanya pelamar yang bisa menyimpan lowongan.")
+    service = JobService(db)
+    return await service.save_job(current_user["sub"], job_id)
+
+@router.delete("/{job_id}/save")
+async def remove_saved_job(job_id: str, current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Menghapus lowongan dari daftar simpanan."""
+    if current_user.get("role") != "pelamar":
+        raise HTTPException(status_code=403, detail="Hanya pelamar yang bisa menghapus simpanan.")
+    service = JobService(db)
+    return await service.remove_saved_job(current_user["sub"], job_id)
 
 
 @router.get("/{job_id}")
@@ -152,6 +229,13 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
         "tanggal_tutup": str(job.tanggal_tutup) if job.tanggal_tutup else None,
         "created_at": str(job.created_at) if job.created_at else None,
         "updated_at": str(job.updated_at) if job.updated_at else None,
+        "department": job.department,
+        "experience_level": job.experience_level,
+        "benefits_json": job.benefits_json,
+        "ai_keywords_json": job.ai_keywords_json,
+        "video_questions_json": job.video_questions_json,
+        "openings_count": job.openings_count,
+        "kategori_id": job.kategori_id,
     }
 
     # Info perusahaan
@@ -230,7 +314,14 @@ async def create_job(
         interview_threshold=req.interview_threshold,
         tanggal_buka=req.tanggal_buka,
         tanggal_tutup=req.tanggal_tutup,
-        status="aktif",
+        status=req.status,
+        kategori_id=req.kategori_id,
+        department=req.department,
+        experience_level=req.experience_level,
+        benefits_json=req.benefits_json,
+        ai_keywords_json=req.ai_keywords_json,
+        video_questions_json=req.video_questions_json,
+        openings_count=req.openings_count,
         jd_embedding=json.dumps(jd_embedding),
     )
 
@@ -300,18 +391,27 @@ async def update_job(
         "tipe_pekerjaan", "lokasi_kerja", "kota", "gaji_min", "gaji_max",
         "tampilkan_gaji", "pengalaman_min_tahun", "pendidikan_min",
         "cv_threshold", "interview_threshold", "status",
-        "tanggal_buka", "tanggal_tutup",
+        "tanggal_buka", "tanggal_tutup", "kategori_id", "department",
+        "experience_level", "benefits_json", "ai_keywords_json",
+        "video_questions_json", "openings_count"
     ]
 
     for key, value in update_data.items():
         if key in allowed_fields:
+            if key in ["tanggal_buka", "tanggal_tutup"] and isinstance(value, str) and value:
+                try:
+                    value = datetime.strptime(value, "%Y-%m-%d").date()
+                except ValueError:
+                    pass
             setattr(job, key, value)
 
-    # Jika deskripsi_pekerjaan berubah, perbarui embedding
     if "deskripsi_pekerjaan" in update_data:
         embedding_service = request.app.state.embedding_service
         jd_embedding = embedding_service.get_embedding(update_data["deskripsi_pekerjaan"])
         job.jd_embedding = json.dumps(jd_embedding)
+
+    await db.commit()
+    await db.refresh(job)
 
     return {
         "message": f"Lowongan '{job.judul_posisi}' berhasil diupdate",
@@ -329,46 +429,17 @@ async def delete_job(
     current_user: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
 ):
-    """Menghapus/menutup lowongan kerja (hanya pemilik perusahaan)."""
-    if current_user.get("role") != "perusahaan":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Hanya akun perusahaan yang bisa menghapus lowongan kerja",
-        )
+    """Menghapus lowongan kerja (hanya pemilik perusahaan)."""
+    service = JobService(db)
+    return await service.delete_job(current_user["sub"], job_id)
 
-    user_id = current_user.get("sub")
-
-    # Cari profil perusahaan
-    result = await db.execute(
-        select(PerusahaanProfile).where(PerusahaanProfile.user_id == user_id)
-    )
-    perusahaan = result.scalars().first()
-
-    if not perusahaan:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profil perusahaan tidak ditemukan",
-        )
-
-    # Cari lowongan dan verifikasi kepemilikan
-    result = await db.execute(
-        select(JobPosting).where(
-            JobPosting.id == job_id,
-            JobPosting.perusahaan_id == perusahaan.id,
-        )
-    )
-    job = result.scalars().first()
-
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lowongan tidak ditemukan atau Anda tidak memiliki akses",
-        )
-
-    # Soft delete: ubah status menjadi 'tutup'
-    job.status = "tutup"
-
-    return {
-        "message": f"Lowongan '{job.judul_posisi}' berhasil ditutup",
-        "data": {"id": job.id, "status": job.status},
-    }
+@router.patch("/{job_id}/status")
+async def update_job_status(
+    job_id: str,
+    status_data: StatusUpdate,
+    current_user: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mengubah status lowongan."""
+    service = JobService(db)
+    return await service.update_job_status(current_user["sub"], job_id, status_data.status)

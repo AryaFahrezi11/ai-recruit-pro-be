@@ -107,7 +107,7 @@ class AuthService:
             "user_id": str(user.id)
         }
 
-    async def login(self, email: str, password: str) -> dict:
+    async def login(self, email: str, password: str, expected_role: str | None = None) -> dict:
         """Login user."""
         # 1. Cari user
         result = await self.db.execute(select(User).where(User.email == email))
@@ -126,6 +126,13 @@ class AuthService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Email atau password salah",
                 headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # 3. Verifikasi role spesifik jika diminta
+        if expected_role and user.role != expected_role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Akses ditolak. Silakan gunakan form login untuk {user.role}.",
             )
 
         # 3. Buat token

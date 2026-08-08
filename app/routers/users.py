@@ -136,21 +136,6 @@ async def get_profile(
 
 @router.put("/profile")
 async def update_profile(
-    update_data: dict = Body(...),
-    current_user: dict = Depends(verify_token),
-    db: AsyncSession = Depends(get_db),
-):
-    
-    # Mengupdate profil user yang sedang login.
-    # Field yang dikirim akan diupdate, field yang tidak dikirim tidak berubah.
-    return {
-        "user_id": current_user.get("sub"),
-        "role": current_user.get("role"),
-        "message": "Endpoint profil - akan diimplementasi penuh nanti"
-    }
-
-@router.put("/profile")
-async def update_profile(
     nama_perusahaan: Optional[str] = Form(None),
     industri: Optional[str] = Form(None),
     ukuran: Optional[str] = Form(None),
@@ -166,83 +151,9 @@ async def update_profile(
     current_user: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db)
 ):
-    
-    # Mengupdate profil user yang sedang login menggunakan FormData.
     user_id = current_user.get("sub")
     role = current_user.get("role")
 
-    # Update field user dasar (avatar_url)
-    user_fields = {}
-    if "avatar_url" in update_data:
-        user_fields["avatar_url"] = update_data.pop("avatar_url")
-
-    if user_fields:
-        result = await db.execute(select(User).where(User.id == user_id))
-        user = result.scalars().first()
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User tidak ditemukan",
-            )
-        for key, value in user_fields.items():
-            setattr(user, key, value)
-
-    # Update profil spesifik berdasarkan role
-    if role == "pelamar":
-        result = await db.execute(
-            select(PelamarProfile).where(PelamarProfile.user_id == user_id)
-        )
-        profile = result.scalars().first()
-        if not profile:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Profil pelamar tidak ditemukan",
-            )
-
-        # Validasi dengan schema
-        valid_fields = PelamarProfileUpdate.model_fields.keys()
-        for key, value in update_data.items():
-            if key in valid_fields:
-                setattr(profile, key, value)
-
-    elif role == "perusahaan":
-        result = await db.execute(
-            select(PerusahaanProfile).where(PerusahaanProfile.user_id == user_id)
-        )
-        profile = result.scalars().first()
-        if not profile:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Profil perusahaan tidak ditemukan",
-            )
-
-        valid_fields = PerusahaanProfileUpdate.model_fields.keys()
-        for key, value in update_data.items():
-            if key in valid_fields:
-                setattr(profile, key, value)
-
-    elif role == "kampus":
-        result = await db.execute(
-            select(KampusProfile).where(KampusProfile.user_id == user_id)
-        )
-        profile = result.scalars().first()
-        if not profile:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Profil kampus tidak ditemukan",
-            )
-
-        # Kampus fields - update langsung
-        kampus_fields = [
-            "nama_kampus", "jenis", "alamat", "kota", "provinsi",
-            "website_url", "logo_url", "akreditasi", "nama_pic",
-            "jabatan_pic", "no_telepon_pic",
-        ]
-        for key, value in update_data.items():
-            if key in kampus_fields:
-                setattr(profile, key, value)
-
-    return {"message": "Profil berhasil diupdate", "role": role}
     if role == "perusahaan":
         result = await db.execute(select(PerusahaanProfile).where(PerusahaanProfile.user_id == user_id))
         profile = result.scalars().first()
@@ -253,6 +164,7 @@ async def update_profile(
         def save_upload(file_upload: UploadFile) -> str:
             ext = file_upload.filename.split('.')[-1]
             filename = f"{uuid.uuid4()}.{ext}"
+            os.makedirs("uploads", exist_ok=True)
             filepath = os.path.join("uploads", filename)
             with open(filepath, "wb") as buffer:
                 shutil.copyfileobj(file_upload.file, buffer)

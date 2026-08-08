@@ -1,38 +1,25 @@
 """
 🛣️ Users Router
-Endpoint: GET /api/users/profile, PUT /api/users/profile
+Endpoint: GET /api/users/profile, PUT /api/users/profile, POST /api/users/cv/upload
 """
-from fastapi import APIRouter, Body, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-
-from app.core.database import get_db
-from app.core.security import verify_token
-from app.models.user import User, PelamarProfile, PerusahaanProfile, KampusProfile
-from app.schemas.user import PelamarProfileUpdate, PerusahaanProfileUpdate
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Body, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
+from typing import Optional
 import os
 import uuid
 import shutil
+import json
 
-from app.core.security import verify_token
 from app.core.database import get_db
+from app.core.security import verify_token
 from app.models.user import User, PelamarProfile, PerusahaanProfile, KampusProfile
+from app.models.application import CVDocument
 from app.schemas.user import PelamarProfileUpdate, PerusahaanProfileUpdate
-from pydantic import BaseModel
-from typing import Union, Optional
 
 router = APIRouter()
 
-class ProfileUpdateRequest(BaseModel):
-    # This is a generic request schema that can accept fields for any profile type
-    nama_perusahaan: str | None = None
-    alamat: str | None = None
-    no_telepon: str | None = None
-    # Add more fields as needed
 
 @router.get("/profile")
 async def get_profile(
@@ -95,6 +82,11 @@ async def get_profile(
             "ringkasan_diri": p.ringkasan_diri,
             "linkedin_url": p.linkedin_url,
             "portfolio_url": p.portfolio_url,
+            "judul_posisi": p.judul_posisi,
+            "keahlian": p.keahlian,
+            "sertifikasi": p.sertifikasi,
+            "pengalaman_kerja": p.pengalaman_kerja,
+            "riwayat_pendidikan": p.riwayat_pendidikan,
         }
     elif role == "perusahaan" and user.perusahaan_profile:
         c = user.perusahaan_profile
@@ -111,6 +103,10 @@ async def get_profile(
             "logo_url": c.logo_url,
             "no_telepon": c.no_telepon,
             "tahun_berdiri": c.tahun_berdiri,
+            "nib_number": c.nib_number,
+            "hr_name": c.hr_name,
+            "hr_whatsapp": c.hr_whatsapp,
+            "hr_position": c.hr_position,
         }
     elif role == "kampus" and user.kampus_profile:
         k = user.kampus_profile

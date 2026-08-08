@@ -35,4 +35,4 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     Login user dan dapatkan JWT token.
     """
     auth_service = AuthService(db)
-    return await auth_service.login(email=req.email, password=req.password)
+    return await auth_service.login(email=req.email, password=req.password, expected_role=req.role)

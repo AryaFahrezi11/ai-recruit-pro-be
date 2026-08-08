@@ -33,7 +33,15 @@ class PerusahaanService:
                 "ukuran": profile.ukuran,
                 "website_url": profile.website_url,
                 "deskripsi": profile.deskripsi,
-                "logo_url": profile.logo_url
+                "logo_url": profile.logo_url,
+                "alamat": profile.alamat,
+                "kota": profile.kota,
+                "provinsi": profile.provinsi,
+                "no_telepon": profile.no_telepon,
+                "tahun_berdiri": profile.tahun_berdiri,
+                "hr_name": profile.hr_name,
+                "hr_whatsapp": profile.hr_whatsapp,
+                "hr_position": profile.hr_position,
             },
             "ai_settings": {
                 "ai_default_threshold": settings.ai_default_threshold,
@@ -44,7 +52,10 @@ class PerusahaanService:
             "email_templates": {
                 "email_invitation_subject": settings.email_invitation_subject,
                 "email_invitation_body": settings.email_invitation_body,
-                "email_hire_subject": settings.email_hire_subject
+                "email_hire_subject": settings.email_hire_subject,
+                "email_hire_body": settings.email_hire_body,
+                "email_reject_subject": settings.email_reject_subject,
+                "email_reject_body": settings.email_reject_body,
             }
         }
 
@@ -66,6 +77,14 @@ class PerusahaanService:
         if req.ukuran is not None: profile.ukuran = req.ukuran
         if req.website_url is not None: profile.website_url = req.website_url
         if req.deskripsi is not None: profile.deskripsi = req.deskripsi
+        if req.alamat is not None: profile.alamat = req.alamat
+        if req.kota is not None: profile.kota = req.kota
+        if req.provinsi is not None: profile.provinsi = req.provinsi
+        if req.no_telepon is not None: profile.no_telepon = req.no_telepon
+        if req.tahun_berdiri is not None: profile.tahun_berdiri = req.tahun_berdiri
+        if req.hr_name is not None: profile.hr_name = req.hr_name
+        if req.hr_whatsapp is not None: profile.hr_whatsapp = req.hr_whatsapp
+        if req.hr_position is not None: profile.hr_position = req.hr_position
 
         # Update Settings
         if req.ai_default_threshold is not None: settings.ai_default_threshold = req.ai_default_threshold
@@ -75,7 +94,30 @@ class PerusahaanService:
         if req.email_invitation_subject is not None: settings.email_invitation_subject = req.email_invitation_subject
         if req.email_invitation_body is not None: settings.email_invitation_body = req.email_invitation_body
         if req.email_hire_subject is not None: settings.email_hire_subject = req.email_hire_subject
+        if req.email_hire_body is not None: settings.email_hire_body = req.email_hire_body
+        if req.email_reject_subject is not None: settings.email_reject_subject = req.email_reject_subject
+        if req.email_reject_body is not None: settings.email_reject_body = req.email_reject_body
 
         await self.db.commit()
-        
         return await self.get_settings(user_id)
+
+    async def get_verified_companies_public(self):
+        from sqlalchemy.orm import selectinload
+        result = await self.db.execute(
+            select(PerusahaanProfile)
+            .options(selectinload(PerusahaanProfile.job_postings))
+            .where(PerusahaanProfile.is_verified == True)
+        )
+        companies = result.scalars().all()
+        
+        data = []
+        for comp in companies:
+            data.append({
+                "id": comp.id,
+                "nama_perusahaan": comp.nama_perusahaan,
+                "logo_url": comp.logo_url,
+                "industri": comp.industri,
+                "rating": 5.0, # dummy rating
+                "jobs_count": len([j for j in comp.job_postings if j.status == 'active'])
+            })
+        return data

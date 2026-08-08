@@ -66,9 +66,10 @@ class SavedJob(Base):
     __tablename__ = "saved_jobs"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    pelamar_id = Column(String, ForeignKey("pelamar_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
-    job_id = Column(String, nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    job_id = Column(String, ForeignKey("job_postings.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    pelamar = relationship("PelamarProfile")
+    job = relationship("JobPosting")
+    user = relationship("User")

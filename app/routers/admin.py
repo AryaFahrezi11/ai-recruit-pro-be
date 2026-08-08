@@ -21,6 +21,11 @@ async def get_users(role: Optional[str] = None, current_user: dict = Depends(ver
     admin_service = AdminService(db)
     return await admin_service.get_all_users(role)
 
+@router.get("/users/{user_id}/detail")
+async def get_user_detail(user_id: str, current_user: dict = Depends(verify_admin), db: AsyncSession = Depends(get_db)):
+    admin_service = AdminService(db)
+    return await admin_service.get_user_detail(user_id)
+
 @router.post("/users")
 async def create_user(req: AdminUserCreateRequest, current_user: dict = Depends(verify_admin), db: AsyncSession = Depends(get_db)):
     admin_service = AdminService(db)

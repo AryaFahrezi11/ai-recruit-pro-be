@@ -211,7 +211,7 @@ async def create_application(
     result = await db.execute(
         select(JobPosting).where(
             JobPosting.id == job_id,
-            JobPosting.status == "aktif",
+            JobPosting.status == "active",
         )
     )
     job = result.scalars().first()

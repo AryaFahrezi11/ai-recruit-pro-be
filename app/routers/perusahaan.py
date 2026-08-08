@@ -55,3 +55,10 @@ async def upload_company_logo(file: UploadFile = File(...), current_user: dict =
     await db.commit()
     
     return {"status": "success", "logo_url": logo_url}
+
+
+@router.get("/verified")
+async def get_verified_companies_public(db: AsyncSession = Depends(get_db)):
+    """Mendapatkan daftar perusahaan terverifikasi untuk halaman utama (publik)."""
+    service = PerusahaanService(db)
+    return await service.get_verified_companies_public()

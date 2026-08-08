@@ -59,6 +59,79 @@ class AdminService:
             
         return users_data
 
+    async def get_user_detail(self, user_id: str):
+        """Mendapatkan detail profile pengguna"""
+        result = await self.db.execute(select(User).where(User.id == user_id))
+        user = result.scalars().first()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User tidak ditemukan")
+            
+        profile_data = {}
+        if user.role == "perusahaan":
+            p_result = await self.db.execute(select(PerusahaanProfile).where(PerusahaanProfile.user_id == user.id))
+            profile = p_result.scalars().first()
+            if profile:
+                profile_data = {
+                    "nama_perusahaan": profile.nama_perusahaan,
+                    "industri": profile.industri,
+                    "ukuran": profile.ukuran,
+                    "deskripsi": profile.deskripsi,
+                    "alamat": profile.alamat,
+                    "kota": profile.kota,
+                    "provinsi": profile.provinsi,
+                    "website_url": profile.website_url,
+                    "no_telepon": profile.no_telepon,
+                    "tahun_berdiri": profile.tahun_berdiri,
+                    "hr_name": profile.hr_name,
+                    "hr_whatsapp": profile.hr_whatsapp,
+                    "is_verified": profile.is_verified
+                }
+        elif user.role == "pelamar":
+            p_result = await self.db.execute(select(PelamarProfile).where(PelamarProfile.user_id == user.id))
+            profile = p_result.scalars().first()
+            if profile:
+                profile_data = {
+                    "nama_lengkap": profile.nama_lengkap,
+                    "no_telepon": profile.no_telepon,
+                    "jenis_kelamin": profile.jenis_kelamin,
+                    "alamat": profile.alamat,
+                    "kota": profile.kota,
+                    "provinsi": profile.provinsi,
+                    "pendidikan_terakhir": profile.pendidikan_terakhir,
+                    "institusi_pendidikan": profile.institusi_pendidikan,
+                    "jurusan": profile.jurusan,
+                    "tahun_lulus": profile.tahun_lulus,
+                    "ipk": str(profile.ipk) if profile.ipk else None,
+                    "ringkasan_diri": profile.ringkasan_diri,
+                    "linkedin_url": profile.linkedin_url,
+                    "portfolio_url": profile.portfolio_url
+                }
+        elif user.role == "kampus":
+            p_result = await self.db.execute(select(KampusProfile).where(KampusProfile.user_id == user.id))
+            profile = p_result.scalars().first()
+            if profile:
+                profile_data = {
+                    "nama_kampus": profile.nama_kampus,
+                    "alamat": profile.alamat,
+                    "kota": profile.kota,
+                    "provinsi": profile.provinsi,
+                    "website_url": profile.website_url,
+                    "no_telepon": profile.no_telepon,
+                    "akreditasi": profile.akreditasi,
+                    "is_verified": profile.is_verified
+                }
+                
+        return {
+            "id": user.id,
+            "email": user.email,
+            "role": user.role,
+            "is_active": user.is_active,
+            "is_banned": user.is_banned,
+            "created_at": user.created_at,
+            "profile": profile_data
+        }
+
     async def create_user_manual(self, req: AdminUserCreateRequest):
         """Membuat user baru secara manual (tanpa OTP, langsung aktif)"""
         # Cek apakah email sudah terdaftar

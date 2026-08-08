@@ -128,6 +128,9 @@ class PerusahaanSettings(Base):
     email_invitation_subject = Column(String, default="[AI Recruit Pro] Undangan Wawancara Video Virtual - {{job_title}}")
     email_invitation_body = Column(Text, default="Halo {{candidate_name}}, Selamat! CV Anda telah lolos tahap seleksi awal (PO-FIT). Silakan ikuti tautan berikut untuk merekam wawancara video virtual 5 pertanyaan: {{interview_link}}")
     email_hire_subject = Column(String, default="[AI Recruit Pro] Selamat! Anda Diterima di {{company_name}}")
+    email_hire_body = Column(Text, default="Halo {{candidate_name}}, Selamat! Kami dengan senang hati menawarkan Anda posisi {{job_title}} di {{company_name}}.")
+    email_reject_subject = Column(String, default="[AI Recruit Pro] Update Status Lamaran: {{job_title}}")
+    email_reject_body = Column(Text, default="Halo {{candidate_name}}, Terima kasih atas ketertarikan Anda pada posisi {{job_title}} di {{company_name}}. Sayangnya, saat ini kami memutuskan untuk melanjutkan dengan kandidat lain yang lebih sesuai.")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

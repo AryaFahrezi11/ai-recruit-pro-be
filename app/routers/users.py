@@ -2,7 +2,7 @@
 🛣️ Users Router
 Endpoint: GET /api/users/profile, PUT /api/users/profile, POST /api/users/cv/upload
 """
-from fastapi import APIRouter, Body, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Body, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -87,6 +87,7 @@ async def get_profile(
             "sertifikasi": p.sertifikasi,
             "pengalaman_kerja": p.pengalaman_kerja,
             "riwayat_pendidikan": p.riwayat_pendidikan,
+            "social_links": p.social_links,
         }
     elif role == "perusahaan" and user.perusahaan_profile:
         c = user.perusahaan_profile
@@ -132,25 +133,52 @@ async def get_profile(
 
 @router.put("/profile")
 async def update_profile(
-    nama_perusahaan: Optional[str] = Form(None),
-    industri: Optional[str] = Form(None),
-    ukuran: Optional[str] = Form(None),
-    website_url: Optional[str] = Form(None),
-    alamat: Optional[str] = Form(None),
-    no_telepon: Optional[str] = Form(None),
-    nib_number: Optional[str] = Form(None),
-    hr_name: Optional[str] = Form(None),
-    hr_whatsapp: Optional[str] = Form(None),
-    hr_position: Optional[str] = Form(None),
-    nib_file: Optional[UploadFile] = File(None),
-    id_card_file: Optional[UploadFile] = File(None),
+    request: Request,
     current_user: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db)
 ):
     user_id = current_user.get("sub")
     role = current_user.get("role")
+    content_type = request.headers.get("content-type", "")
 
-    if role == "perusahaan":
+    if role == "pelamar":
+        result = await db.execute(select(PelamarProfile).where(PelamarProfile.user_id == user_id))
+        profile = result.scalars().first()
+
+        if not profile:
+            profile = PelamarProfile(user_id=user_id, nama_lengkap="Pelamar")
+            db.add(profile)
+            await db.flush()
+
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+
+        if "nama_lengkap" in data and data["nama_lengkap"] is not None: profile.nama_lengkap = data["nama_lengkap"]
+        if "judul_posisi" in data and data["judul_posisi"] is not None: profile.judul_posisi = data["judul_posisi"]
+        if "no_telepon" in data and data["no_telepon"] is not None: profile.no_telepon = data["no_telepon"]
+        if "alamat" in data and data["alamat"] is not None: profile.alamat = data["alamat"]
+        if "kota" in data and data["kota"] is not None: profile.kota = data["kota"]
+        if "provinsi" in data and data["provinsi"] is not None: profile.provinsi = data["provinsi"]
+        if "linkedin_url" in data and data["linkedin_url"] is not None:
+            profile.linkedin_url = str(data["linkedin_url"]) if not isinstance(data["linkedin_url"], str) else data["linkedin_url"]
+        if "portfolio_url" in data and data["portfolio_url"] is not None:
+            profile.portfolio_url = str(data["portfolio_url"])
+        if "ringkasan_diri" in data and data["ringkasan_diri"] is not None: profile.ringkasan_diri = data["ringkasan_diri"]
+        if "pengalaman_kerja" in data and data["pengalaman_kerja"] is not None:
+            profile.pengalaman_kerja = json.dumps(data["pengalaman_kerja"]) if isinstance(data["pengalaman_kerja"], (list, dict)) else str(data["pengalaman_kerja"])
+        if "riwayat_pendidikan" in data and data["riwayat_pendidikan"] is not None:
+            profile.riwayat_pendidikan = json.dumps(data["riwayat_pendidikan"]) if isinstance(data["riwayat_pendidikan"], (list, dict)) else str(data["riwayat_pendidikan"])
+        if "keahlian" in data and data["keahlian"] is not None: profile.keahlian = data["keahlian"]
+        if "sertifikasi" in data and data["sertifikasi"] is not None: profile.sertifikasi = data["sertifikasi"]
+        if "social_links" in data and data["social_links"] is not None:
+            profile.social_links = json.dumps(data["social_links"]) if isinstance(data["social_links"], (list, dict)) else str(data["social_links"])
+
+        await db.commit()
+        return {"message": "Profil pelamar berhasil disimpan ke database"}
+
+    elif role == "perusahaan":
         result = await db.execute(select(PerusahaanProfile).where(PerusahaanProfile.user_id == user_id))
         profile = result.scalars().first()
         if not profile:
@@ -166,22 +194,32 @@ async def update_profile(
                 shutil.copyfileobj(file_upload.file, buffer)
             return f"/uploads/{filename}"
 
-        if nama_perusahaan is not None: profile.nama_perusahaan = nama_perusahaan
-        if industri is not None: profile.industri = industri
-        if ukuran is not None: profile.ukuran = ukuran
-        if website_url is not None: profile.website_url = website_url
-        if alamat is not None: profile.alamat = alamat
-        if no_telepon is not None: profile.no_telepon = no_telepon
-        if nib_number is not None: profile.nib_number = nib_number
-        if hr_name is not None: profile.hr_name = hr_name
-        if hr_whatsapp is not None: profile.hr_whatsapp = hr_whatsapp
-        if hr_position is not None: profile.hr_position = hr_position
-        
-        if nib_file is not None:
-            profile.nib_document_url = save_upload(nib_file)
+        if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+            form = await request.form()
+            if "nama_perusahaan" in form: profile.nama_perusahaan = str(form["nama_perusahaan"])
+            if "industri" in form: profile.industri = str(form["industri"])
+            if "ukuran" in form: profile.ukuran = str(form["ukuran"])
+            if "website_url" in form: profile.website_url = str(form["website_url"])
+            if "alamat" in form: profile.alamat = str(form["alamat"])
+            if "no_telepon" in form: profile.no_telepon = str(form["no_telepon"])
+            if "nib_number" in form: profile.nib_number = str(form["nib_number"])
+            if "hr_name" in form: profile.hr_name = str(form["hr_name"])
+            if "hr_whatsapp" in form: profile.hr_whatsapp = str(form["hr_whatsapp"])
+            if "hr_position" in form: profile.hr_position = str(form["hr_position"])
             
-        if id_card_file is not None:
-            profile.hr_id_card_url = save_upload(id_card_file)
+            if "nib_file" in form and hasattr(form["nib_file"], "filename"):
+                profile.nib_document_url = save_upload(form["nib_file"])  # type: ignore
+                
+            if "id_card_file" in form and hasattr(form["id_card_file"], "filename"):
+                profile.hr_id_card_url = save_upload(form["id_card_file"])  # type: ignore
+        else:
+            try:
+                data = await request.json()
+                for key, value in data.items():
+                    if hasattr(profile, key) and value is not None:
+                        setattr(profile, key, value)
+            except Exception:
+                pass
             
         await db.commit()
         return {"message": "Profil perusahaan berhasil diupdate"}

@@ -66,7 +66,7 @@ async def get_saved_jobs(
                 "location": f"{job.kota or 'Jakarta'}, DKI Jakarta",
                 "education": job.pendidikan_min or "Minimal D3/S1",
                 "workPolicy": f"{job.tipe_pekerjaan or 'Full time'} • {job.lokasi_kerja or 'WFO'}",
-                "salary": f"Rp {int(job.gaji_min):,} - Rp {int(job.gaji_max):,}" if job.gaji_min and job.gaji_max else "Gaji Kompetitif",
+                "salary": f"Rp {int(float(job.gaji_min)):,} - Rp {int(float(job.gaji_max)):,}" if (job.gaji_min is not None and job.gaji_max is not None) else "Gaji Kompetitif",
                 "postedAgo": "Terakhir diperbarui",
                 "matchScore": 95,
                 "descriptionBullets": [job.deskripsi_pekerjaan[:150] if job.deskripsi_pekerjaan else ""],

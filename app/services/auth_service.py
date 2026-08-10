@@ -41,15 +41,15 @@ class AuthService:
         # Flush agar new_user mendapatkan ID sebelum di-commit
         await self.db.flush() 
 
-        # 3. Buat profil default sesuai role
+        # 3. Buat profil default sesuai role (kosong untuk pelamar baru)
         if role == "pelamar":
-            profile = PelamarProfile(user_id=new_user.id, nama_lengkap="Nama Pelamar")
+            profile = PelamarProfile(user_id=new_user.id, nama_lengkap="")
             self.db.add(profile)
         elif role == "perusahaan":
-            profile = PerusahaanProfile(user_id=new_user.id, nama_perusahaan="Nama Perusahaan")
+            profile = PerusahaanProfile(user_id=new_user.id, nama_perusahaan="")
             self.db.add(profile)
         elif role == "kampus":
-            profile = KampusProfile(user_id=new_user.id, nama_kampus="Nama Kampus")
+            profile = KampusProfile(user_id=new_user.id, nama_kampus="")
             self.db.add(profile)
 
         # Simpan semua perubahan ke database

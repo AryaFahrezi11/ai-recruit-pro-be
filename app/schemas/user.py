@@ -71,6 +71,11 @@ class PelamarProfileUpdate(BaseModel):
     ringkasan_diri: str | None = None
     linkedin_url: str | None = None
     portfolio_url: str | None = None
+    judul_posisi: str | None = None
+    keahlian: str | None = None
+    sertifikasi: str | None = None
+    pengalaman_kerja: str | None = None
+    riwayat_pendidikan: str | None = None
 
 
 class PerusahaanProfileUpdate(BaseModel):

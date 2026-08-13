@@ -2,6 +2,7 @@
 📄 CV Analysis Service
 Logika bisnis untuk menganalisis CV pelamar terhadap Job Description.
 """
+from starlette.concurrency import run_in_threadpool
 from app.services.embedding_service import EmbeddingService
 from app.utils.pdf_extractor import extract_text_from_pdf, clean_text
 
@@ -18,11 +19,34 @@ class CVAnalysisService:
     def __init__(self, embedding_service: EmbeddingService):
         self.embedding_service = embedding_service
 
+
+    async def analyze_match_from_embeddings(
+        self,
+        cv_embedding: list[float],
+        jd_embedding: list[float],
+        threshold: float = None,
+        cv_text: str = None,
+        ai_keywords: list[str] = None,
+    ) -> dict:
+        """
+        Menganalisis kecocokan secara langsung menggunakan vektor yang sudah ada.
+        """
+        result = await run_in_threadpool(
+            self.embedding_service.analyze_match_from_embeddings,
+            cv_embedding=cv_embedding,
+            jd_embedding=jd_embedding,
+            threshold=threshold,
+            cv_text=cv_text,
+            ai_keywords=ai_keywords,
+        )
+        return result
+
     async def analyze_cv(
         self,
         cv_text: str,
         job_description: str,
         threshold: float = None,
+        ai_keywords: list[str] = None,
     ) -> dict:
         """
         Menganalisis kecocokan CV dengan Job Description.
@@ -39,11 +63,13 @@ class CVAnalysisService:
         cleaned_cv = clean_text(cv_text)
         cleaned_jd = clean_text(job_description)
 
-        # Jalankan analisis AI
-        result = self.embedding_service.analyze_match(
+        # Jalankan analisis AI di thread terpisah agar tidak memblokir event loop
+        result = await run_in_threadpool(
+            self.embedding_service.analyze_match,
             text_cv=cleaned_cv,
             text_jd=cleaned_jd,
             threshold=threshold,
+            ai_keywords=ai_keywords,
         )
 
         return result

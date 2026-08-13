@@ -64,7 +64,63 @@ class EmbeddingService:
         similarity = cosine_similarity(vec_a, vec_b)[0][0]
         return float(similarity)
 
-    def analyze_match(self, text_cv: str, text_jd: str, threshold: float = None) -> dict:
+
+    def analyze_match_from_embeddings(self, cv_embedding: list[float], jd_embedding: list[float], threshold: float = None, cv_text: str = None, ai_keywords: list[str] = None) -> dict:
+        if threshold is None:
+            threshold = settings.CV_THRESHOLD_DEFAULT
+
+        start_time = time.time()
+        
+        # Hitung similarity SBERT
+        similarity = self.calculate_similarity(cv_embedding, jd_embedding)
+        sbert_skor = similarity * 100
+        
+        # Hitung Keyword Matching (Hybrid)
+        keyword_skor = 0.0
+        skor_hybrid = sbert_skor
+        found_count = 0
+        
+        if ai_keywords and len(ai_keywords) > 0 and cv_text:
+            cv_text_lower = cv_text.lower()
+            found_count = sum(1 for kw in ai_keywords if kw.lower() in cv_text_lower)
+            keyword_skor = (found_count / len(ai_keywords)) * 100
+            
+            # Pembobotan: 60% SBERT, 40% Keyword
+            skor_hybrid = (sbert_skor * 0.6) + (keyword_skor * 0.4)
+            
+        skor = round(skor_hybrid, 2)
+
+        # Kategorisasi
+        if skor >= 70:
+            kategori = "sangat_cocok"
+        elif skor >= 55:
+            kategori = "cocok"
+        elif skor >= 40:
+            kategori = "cukup_cocok"
+        elif skor >= 25:
+            kategori = "kurang_cocok"
+        else:
+            kategori = "tidak_cocok"
+
+        hasil = "lolos" if skor >= threshold else "ditolak"
+        elapsed = (time.time() - start_time) * 1000
+
+        return {
+            "cosine_similarity_score": float(similarity),
+            "skor_kecocokan": skor,
+            "threshold_digunakan": threshold,
+            "kategori": kategori,
+            "hasil": hasil,
+            "waktu_proses_ms": round(elapsed, 2),
+            "hybrid_details": {
+                "sbert_score": round(sbert_skor, 2) if 'sbert_skor' in locals() else 0,
+                "keyword_score": round(keyword_skor, 2) if 'keyword_skor' in locals() else 0,
+                "keywords_found": found_count if 'found_count' in locals() else 0,
+                "keywords_total": len(ai_keywords) if ai_keywords else 0
+            }
+        }
+
+    def analyze_match(self, text_cv: str, text_jd: str, threshold: float = None, ai_keywords: list[str] = None) -> dict:
         """
         Menganalisis kecocokan CV dengan Job Description secara langsung.
         Fungsi ini menggabungkan embedding + similarity dalam satu langkah.
@@ -73,6 +129,7 @@ class EmbeddingService:
             text_cv: Teks CV pelamar
             text_jd: Teks Job Description
             threshold: Ambang batas kelulusan (default dari config)
+            ai_keywords: Daftar keahlian spesifik untuk Hybrid Search
 
         Returns:
             dict: Hasil analisis lengkap
@@ -86,9 +143,24 @@ class EmbeddingService:
         cv_embedding = self.get_embedding(text_cv)
         jd_embedding = self.get_embedding(text_jd)
 
-        # Hitung similarity
+        # Hitung similarity SBERT
         similarity = self.calculate_similarity(cv_embedding, jd_embedding)
-        skor = round(similarity * 100, 2)
+        sbert_skor = similarity * 100
+        
+        # Hitung Keyword Matching (Hybrid)
+        keyword_skor = 0.0
+        skor_hybrid = sbert_skor
+        found_count = 0
+        
+        if ai_keywords and len(ai_keywords) > 0 and text_cv:
+            cv_text_lower = text_cv.lower()
+            found_count = sum(1 for kw in ai_keywords if kw.lower() in cv_text_lower)
+            keyword_skor = (found_count / len(ai_keywords)) * 100
+            
+            # Pembobotan: 60% SBERT, 40% Keyword
+            skor_hybrid = (sbert_skor * 0.6) + (keyword_skor * 0.4)
+            
+        skor = round(skor_hybrid, 2)
 
         # Kategorisasi
         if skor >= 70:

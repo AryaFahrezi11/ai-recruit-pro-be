@@ -8,6 +8,7 @@ from datetime import datetime
 class ApplicationCreate(BaseModel):
     job_id: str
     catatan_pelamar: str | None = None
+    cv_data: dict
 
 
 class ApplicationResponse(BaseModel):

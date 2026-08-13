@@ -94,15 +94,7 @@ class AdminService:
                 profile_data = {
                     "nama_lengkap": profile.nama_lengkap,
                     "no_telepon": profile.no_telepon,
-                    "jenis_kelamin": profile.jenis_kelamin,
                     "alamat": profile.alamat,
-                    "kota": profile.kota,
-                    "provinsi": profile.provinsi,
-                    "pendidikan_terakhir": profile.pendidikan_terakhir,
-                    "institusi_pendidikan": profile.institusi_pendidikan,
-                    "jurusan": profile.jurusan,
-                    "tahun_lulus": profile.tahun_lulus,
-                    "ipk": str(profile.ipk) if profile.ipk else None,
                     "ringkasan_diri": profile.ringkasan_diri,
                     "linkedin_url": profile.linkedin_url,
                     "portfolio_url": profile.portfolio_url

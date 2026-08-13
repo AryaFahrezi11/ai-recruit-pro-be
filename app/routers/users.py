@@ -2,6 +2,8 @@
 🛣️ Users Router
 Endpoint: GET /api/users/profile, PUT /api/users/profile, POST /api/users/cv/upload
 """
+from starlette.concurrency import run_in_threadpool
+from app.utils.pdf_extractor import clean_text
 from fastapi import APIRouter, Body, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -69,16 +71,7 @@ async def get_profile(
             "id": p.id,
             "nama_lengkap": p.nama_lengkap,
             "no_telepon": p.no_telepon,
-            "tanggal_lahir": str(p.tanggal_lahir) if p.tanggal_lahir else None,
-            "jenis_kelamin": p.jenis_kelamin,
             "alamat": p.alamat,
-            "kota": p.kota,
-            "provinsi": p.provinsi,
-            "pendidikan_terakhir": p.pendidikan_terakhir,
-            "institusi_pendidikan": p.institusi_pendidikan,
-            "jurusan": p.jurusan,
-            "tahun_lulus": p.tahun_lulus,
-            "ipk": float(p.ipk) if p.ipk else None,
             "ringkasan_diri": p.ringkasan_diri,
             "linkedin_url": p.linkedin_url,
             "portfolio_url": p.portfolio_url,
@@ -159,8 +152,6 @@ async def update_profile(
         if "judul_posisi" in data and data["judul_posisi"] is not None: profile.judul_posisi = data["judul_posisi"]
         if "no_telepon" in data and data["no_telepon"] is not None: profile.no_telepon = data["no_telepon"]
         if "alamat" in data and data["alamat"] is not None: profile.alamat = data["alamat"]
-        if "kota" in data and data["kota"] is not None: profile.kota = data["kota"]
-        if "provinsi" in data and data["provinsi"] is not None: profile.provinsi = data["provinsi"]
         if "linkedin_url" in data and data["linkedin_url"] is not None:
             profile.linkedin_url = str(data["linkedin_url"]) if not isinstance(data["linkedin_url"], str) else data["linkedin_url"]
         if "portfolio_url" in data and data["portfolio_url"] is not None:
@@ -176,6 +167,39 @@ async def update_profile(
             profile.social_links = json.dumps(data["social_links"]) if isinstance(data["social_links"], (list, dict)) else str(data["social_links"])
 
         await db.commit()
+        await db.refresh(profile)
+
+        # --- PRE-COMPUTE CV EMBEDDING ---
+        cv_text_parts = [
+            f"Nama: {profile.nama_lengkap or ''}",
+            f"Posisi/Jabatan: {profile.judul_posisi or ''}",
+            f"Deskripsi Diri: {profile.ringkasan_diri or ''}",
+            f"Keahlian (Skills): {profile.keahlian or ''}",
+            f"Pengalaman Kerja:\n{profile.pengalaman_kerja or ''}",
+            f"Pendidikan:\n{profile.riwayat_pendidikan or ''}"
+        ]
+        cv_text = "\n".join(cv_text_parts)
+        
+        try:
+            embedding_service = request.app.state.embedding_service
+            cv_embedding = await run_in_threadpool(embedding_service.get_embedding, cv_text)
+            
+            cv_doc = CVDocument(
+                pelamar_id=profile.id,
+                nama_file="Profil_CV_Dashboard.json",
+                file_url="profil-dashboard",
+                file_type="json",
+                file_size_kb=len(cv_text) // 1024,
+                extracted_text=cv_text,
+                cleaned_text=clean_text(cv_text),
+                embedding_vector=json.dumps(cv_embedding)
+            )
+            db.add(cv_doc)
+            await db.commit()
+        except Exception as e:
+            print("Failed to generate embedding on profile update:", e)
+        # ---------------------------------
+
         return {"message": "Profil pelamar berhasil disimpan ke database"}
 
     elif role == "perusahaan":

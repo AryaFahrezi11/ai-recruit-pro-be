@@ -62,3 +62,9 @@ async def get_verified_companies_public(db: AsyncSession = Depends(get_db)):
     """Mendapatkan daftar perusahaan terverifikasi untuk halaman utama (publik)."""
     service = PerusahaanService(db)
     return await service.get_verified_companies_public()
+
+@router.get("/{company_id}")
+async def get_company_profile(company_id: str, db: AsyncSession = Depends(get_db)):
+    """Mendapatkan profil publik perusahaan beserta loker aktifnya."""
+    service = PerusahaanService(db)
+    return await service.get_company_profile(company_id)

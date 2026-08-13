@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import defer
 from fastapi import HTTPException
 from app.models.job import JobPosting, JobCategory, SavedJob
 from app.models.user import PerusahaanProfile
@@ -121,6 +122,7 @@ class JobService:
 
         result = await self.db.execute(
             select(JobPosting)
+            .options(defer(JobPosting.jd_embedding))
             .where(JobPosting.perusahaan_id == perusahaan.id)
             .order_by(JobPosting.created_at.desc())
         )
@@ -169,7 +171,8 @@ class JobService:
         result = await self.db.execute(
             select(SavedJob)
             .options(
-                selectinload(SavedJob.job).selectinload(JobPosting.perusahaan)
+                selectinload(SavedJob.job).selectinload(JobPosting.perusahaan),
+                defer(JobPosting.jd_embedding)
             )
             .where(SavedJob.user_id == user_id)
             .order_by(SavedJob.created_at.desc())

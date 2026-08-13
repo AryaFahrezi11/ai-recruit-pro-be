@@ -102,10 +102,11 @@ class PerusahaanService:
         return await self.get_settings(user_id)
 
     async def get_verified_companies_public(self):
-        from sqlalchemy.orm import selectinload
+        from sqlalchemy.orm import selectinload, defer
+        from app.models.job import JobPosting
         result = await self.db.execute(
             select(PerusahaanProfile)
-            .options(selectinload(PerusahaanProfile.job_postings))
+            .options(selectinload(PerusahaanProfile.job_postings).defer(JobPosting.jd_embedding))
             .where(PerusahaanProfile.is_verified == True)
         )
         companies = result.scalars().all()
@@ -121,3 +122,59 @@ class PerusahaanService:
                 "jobs_count": len([j for j in comp.job_postings if j.status == 'active'])
             })
         return data
+        
+    async def get_company_profile(self, company_id: str):
+        from sqlalchemy.orm import selectinload, defer
+        from app.models.job import JobPosting
+        
+        result = await self.db.execute(
+            select(PerusahaanProfile)
+            .options(selectinload(PerusahaanProfile.job_postings).defer(JobPosting.jd_embedding))
+            .where(PerusahaanProfile.id == company_id)
+            .where(PerusahaanProfile.is_verified == True)
+        )
+        comp = result.scalars().first()
+        
+        if not comp:
+            raise HTTPException(status_code=404, detail="Perusahaan tidak ditemukan atau belum diverifikasi")
+            
+        active_jobs = [j for j in comp.job_postings if j.status == 'active']
+        
+        return {
+            "id": comp.id,
+            "nama_perusahaan": comp.nama_perusahaan,
+            "logo_url": comp.logo_url,
+            "industri": comp.industri,
+            "ukuran": comp.ukuran,
+            "website_url": comp.website_url,
+            "deskripsi": comp.deskripsi,
+            "alamat": comp.alamat,
+            "kota": comp.kota,
+            "provinsi": comp.provinsi,
+            "tahun_berdiri": comp.tahun_berdiri,
+            "rating": 5.0, # dummy rating
+            "jobs_count": len(active_jobs),
+            "jobs": [
+                {
+                    "id": j.id,
+                    "judul_posisi": j.judul_posisi,
+                    "lokasi_kerja": j.lokasi_kerja,
+                    "kota": j.kota,
+                    "tipe_pekerjaan": j.tipe_pekerjaan,
+                    "kualifikasi": j.kualifikasi,
+                    "pendidikan_min": j.pendidikan_min,
+                    "pengalaman_min_tahun": j.pengalaman_min_tahun,
+                    "experience_level": j.experience_level,
+                    "gaji_min": j.gaji_min,
+                    "gaji_max": j.gaji_max,
+                    "tampilkan_gaji": j.tampilkan_gaji,
+                    "openings_count": j.openings_count,
+                    "benefits_json": j.benefits_json,
+                    "deskripsi_pekerjaan": j.deskripsi_pekerjaan,
+                    "tanggung_jawab": j.tanggung_jawab,
+                    "tanggal_buka": j.tanggal_buka,
+                    "tanggal_tutup": j.tanggal_tutup,
+                    "is_promoted": j.is_promoted,
+                } for j in active_jobs
+            ]
+        }

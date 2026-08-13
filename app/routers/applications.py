@@ -8,9 +8,10 @@ import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.core.database import get_db
 from app.core.security import verify_token
@@ -20,6 +21,7 @@ from app.models.application import CVDocument, Application
 from app.models.analysis import CVAnalysisResult
 from app.services.cv_analysis_service import CVAnalysisService
 from app.utils.pdf_extractor import clean_text
+from app.schemas.application import ApplicationCreate
 
 # Folder untuk menyimpan file CV yang diupload
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
@@ -122,9 +124,10 @@ async def get_applications(
         result = await db.execute(
             select(Application)
             .options(
-                selectinload(Application.pelamar),
+                selectinload(Application.pelamar).selectinload(PelamarProfile.user),
                 selectinload(Application.job),
                 selectinload(Application.cv_analysis),
+                selectinload(Application.cv_document),
             )
             .where(Application.job_id.in_(job_ids))
             .order_by(Application.applied_at.desc())
@@ -144,19 +147,70 @@ async def get_applications(
                     "id": app.pelamar.id,
                     "nama_lengkap": app.pelamar.nama_lengkap,
                     "no_telepon": app.pelamar.no_telepon,
-                    "pendidikan_terakhir": app.pelamar.pendidikan_terakhir,
-                    "institusi_pendidikan": app.pelamar.institusi_pendidikan,
+                }
+                
+                # Parsing stringified JSON fields safely
+                def safe_json(val):
+                    if not val:
+                        return []
+                    try:
+                        parsed = json.loads(val)
+                        return parsed if isinstance(parsed, list) else []
+                    except:
+                        return []
+
+                app_dict["cvData"] = {
+                    "fullName": app.pelamar.nama_lengkap,
+                    "jobTitle": app.pelamar.judul_posisi,
+                    "email": getattr(app.pelamar.user, "email", "") if getattr(app.pelamar, "user", None) else "",
+                    "phone": app.pelamar.no_telepon,
+                    "location": app.pelamar.alamat,
+                    "linkedinUrl": app.pelamar.linkedin_url,
+                    "portfolioUrl": app.pelamar.portfolio_url,
+                    "socialLinks": safe_json(app.pelamar.social_links),
+                    "summary": app.pelamar.ringkasan_diri,
+                    "skills": app.pelamar.keahlian,
+                    "experiences": safe_json(app.pelamar.pengalaman_kerja),
+                    "education": safe_json(app.pelamar.riwayat_pendidikan),
+                    "certifications": safe_json(app.pelamar.sertifikasi),
+                }
+            if app.cv_document:
+                app_dict["cv_document"] = {
+                    "id": app.cv_document.id,
+                    "file_url": app.cv_document.file_url,
+                    "file_type": app.cv_document.file_type,
+                    "file_size_kb": app.cv_document.file_size_kb,
                 }
             if app.job:
                 app_dict["job"] = {
                     "id": app.job.id,
                     "judul_posisi": app.job.judul_posisi,
+                    "tipe_pekerjaan": app.job.tipe_pekerjaan,
+                    "lokasi_kerja": app.job.lokasi_kerja,
+                    "kota": app.job.kota,
+                    "pengalaman_min_tahun": app.job.pengalaman_min_tahun,
+                    "pendidikan_min": app.job.pendidikan_min,
+                    "deskripsi_pekerjaan": safe_json(app.job.deskripsi_pekerjaan) if app.job.deskripsi_pekerjaan else [],
+                    "tanggung_jawab": safe_json(app.job.tanggung_jawab) if app.job.tanggung_jawab else [],
+                    "kualifikasi": safe_json(app.job.kualifikasi) if app.job.kualifikasi else [],
+                    "gaji_min": float(app.job.gaji_min) if app.job.gaji_min else None,
+                    "gaji_max": float(app.job.gaji_max) if app.job.gaji_max else None,
+                    "tampilkan_gaji": app.job.tampilkan_gaji,
+                    "department": app.job.department,
+                    "experience_level": app.job.experience_level,
+                    "benefits": safe_json(app.job.benefits_json) if app.job.benefits_json else [],
+                    "ai_keywords": safe_json(app.job.ai_keywords_json) if app.job.ai_keywords_json else [],
+                    "tanggal_buka": str(app.job.tanggal_buka) if app.job.tanggal_buka else None,
+                    "tanggal_tutup": str(app.job.tanggal_tutup) if app.job.tanggal_tutup else None,
+                    "cv_threshold": float(app.job.cv_threshold) if app.job.cv_threshold else 40,
+                    "interview_threshold": float(app.job.interview_threshold) if app.job.interview_threshold else 40,
                 }
             if app.cv_analysis:
                 app_dict["analisis_cv"] = {
                     "skor_kecocokan": float(app.cv_analysis.skor_kecocokan),
                     "kategori": app.cv_analysis.kategori,
                     "hasil": app.cv_analysis.hasil,
+                    "hybrid_details": json.loads(app.cv_analysis.detail_analisis) if app.cv_analysis.detail_analisis else None,
                 }
             data.append(app_dict)
 
@@ -172,177 +226,213 @@ async def get_applications(
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_application(
     request: Request,
-    job_id: str = Form(..., description="ID lowongan kerja yang dilamar"),
-    catatan_pelamar: str = Form(default=None, description="Catatan tambahan dari pelamar"),
-    file: UploadFile = File(..., description="File CV (PDF atau TXT)"),
+    payload: ApplicationCreate,
     current_user: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Pelamar melamar ke suatu posisi dengan mengupload CV.
-    Sistem akan otomatis:
-    1. Menyimpan file CV
-    2. Mengekstrak teks dari CV
-    3. Menganalisis kecocokan CV dengan Job Description (AI)
-    4. Menentukan status awal lamaran berdasarkan skor AI
+    Pelamar melamar ke suatu posisi menggunakan Profil CV Dashboard.
     """
-    # Validasi role
-    if current_user.get("role") != "pelamar":
+    user_id = current_user.get("sub")
+    role = current_user.get("role")
+
+    if role != "pelamar":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Hanya akun pelamar yang bisa melamar pekerjaan",
+            detail="Hanya pelamar yang dapat melamar pekerjaan",
         )
 
-    user_id = current_user.get("sub")
-
-    # Cari profil pelamar
+    # 1. Verifikasi Pelamar
     result = await db.execute(
         select(PelamarProfile).where(PelamarProfile.user_id == user_id)
     )
     pelamar = result.scalars().first()
-
     if not pelamar:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profil pelamar tidak ditemukan. Silakan lengkapi profil terlebih dahulu.",
+            detail="Profil pelamar tidak ditemukan",
         )
 
-    # Cari lowongan kerja
+    # 2. Verifikasi Job
     result = await db.execute(
         select(JobPosting).where(
-            JobPosting.id == job_id,
-            JobPosting.status == "active",
+            JobPosting.id == payload.job_id, JobPosting.status == "active"
         )
     )
     job = result.scalars().first()
-
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Lowongan kerja tidak ditemukan atau sudah ditutup",
         )
 
-    # Cek apakah sudah pernah melamar ke lowongan ini
+    # Cek apakah sudah melamar
     result = await db.execute(
         select(Application).where(
-            Application.pelamar_id == pelamar.id,
-            Application.job_id == job_id,
+            Application.pelamar_id == pelamar.id, Application.job_id == job.id
         )
     )
-    existing = result.scalars().first()
-
-    if existing:
+    if result.scalars().first():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Anda sudah pernah melamar ke lowongan ini",
+            detail="Anda sudah melamar ke posisi ini",
         )
 
-    # Validasi tipe file
-    allowed_types = ["application/pdf", "text/plain"]
-    if file.content_type not in allowed_types:
+    # 3. Ambil CVDocument master terakhir dari pelamar
+    result = await db.execute(
+        select(CVDocument)
+        .where(CVDocument.pelamar_id == pelamar.id, CVDocument.nama_file == "Profil_CV_Dashboard.json")
+        .order_by(CVDocument.uploaded_at.desc())
+    )
+    cv_doc = result.scalars().first()
+    
+    if not cv_doc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Tipe file '{file.content_type}' tidak didukung. Gunakan PDF atau TXT.",
+            detail="CV Profil tidak ditemukan. Silakan lengkapi dan simpan Profil/CV di dashboard terlebih dahulu.",
         )
 
-    # Baca file
-    file_content = await file.read()
-    file_size_kb = len(file_content) // 1024
-    file_type = "pdf" if file.content_type == "application/pdf" else "txt"
-
-    # Simpan file ke disk
-    file_ext = "pdf" if file_type == "pdf" else "txt"
-    saved_filename = f"{uuid.uuid4()}.{file_ext}"
-    file_path = os.path.join(UPLOAD_DIR, saved_filename)
-
-    with open(file_path, "wb") as f:
-        f.write(file_content)
-
-    file_url = f"/uploads/{saved_filename}"
-
-    # Jalankan analisis AI
-    embedding_service = request.app.state.embedding_service
-    cv_service = CVAnalysisService(embedding_service)
-
-    try:
-        analysis_result = await cv_service.process_cv_file(
-            file_content=file_content,
-            file_type=file_type,
-            job_description=job.deskripsi_pekerjaan,
-            threshold=float(job.cv_threshold) if job.cv_threshold else None,
-        )
-    except ValueError as e:
-        # Hapus file yang sudah disimpan jika analisis gagal
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-    extracted_text = analysis_result.get("extracted_text", "")
-    cleaned_text_val = analysis_result.get("cleaned_text", "")
-    cv_embedding = analysis_result.get("cv_embedding", [])
-
-    # 1. Simpan CVDocument
-    cv_doc = CVDocument(
+    # 5. Buat Application (tanpa AI untuk saat ini)
+    new_application = Application(
         pelamar_id=pelamar.id,
-        nama_file=file.filename or saved_filename,
-        file_url=file_url,
-        file_type=file_type,
-        file_size_kb=file_size_kb,
-        extracted_text=extracted_text,
-        cleaned_text=cleaned_text_val,
-        embedding_vector=json.dumps(cv_embedding) if cv_embedding else None,
-    )
-    db.add(cv_doc)
-    await db.flush()
-
-    # 2. Simpan Application
-    # Tentukan status awal berdasarkan hasil analisis
-    skor = analysis_result.get("skor_kecocokan", 0)
-    threshold = analysis_result.get("threshold_digunakan", 40.0)
-    initial_status = "lolos_cv" if skor >= threshold else "gagal_cv"
-
-    application = Application(
-        pelamar_id=pelamar.id,
-        job_id=job_id,
+        job_id=job.id,
         cv_document_id=cv_doc.id,
-        status=initial_status,
-        catatan_pelamar=catatan_pelamar,
+        catatan_pelamar=payload.catatan_pelamar,
+        status="upload_cv"
     )
-    db.add(application)
-    await db.flush()
-
-    # 3. Simpan CVAnalysisResult
-    cv_analysis = CVAnalysisResult(
-        application_id=application.id,
-        cv_document_id=cv_doc.id,
-        job_id=job_id,
-        cosine_similarity_score=analysis_result.get("cosine_similarity_score", 0),
-        skor_kecocokan=skor,
-        threshold_digunakan=threshold,
-        kategori=analysis_result.get("kategori", "tidak_cocok"),
-        hasil=analysis_result.get("hasil", "gagal"),
-        model_ai=analysis_result.get("model_ai", ""),
-        waktu_proses_ms=int(analysis_result.get("waktu_proses_ms", 0)),
-    )
-    db.add(cv_analysis)
+    db.add(new_application)
+    
+    await db.commit()
+    await db.refresh(new_application)
 
     return {
-        "message": "Lamaran berhasil dikirim dan CV berhasil dianalisis",
+        "message": "Lamaran berhasil dikirim (Menunggu Seleksi)",
         "data": {
-            "application_id": application.id,
-            "job_id": job_id,
-            "status": initial_status,
-            "cv_document_id": cv_doc.id,
+            "application_id": new_application.id,
+            "status": new_application.status,
+            "analisis_cv": None
+        }
+    }
+
+
+@router.post("/{application_id}/analyze", status_code=status.HTTP_200_OK)
+async def analyze_application_cv(
+    application_id: str,
+    request: Request,
+    current_user: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Menjalankan proses seleksi AI (PO-FIT) secara manual untuk suatu lamaran.
+    Hanya bisa dilakukan oleh perusahaan pemilik lowongan.
+    """
+    user_id = current_user.get("sub")
+    # Role check diabaikan sementara karena pengecekan profil perusahaan di bawah 
+    # sudah cukup untuk memastikan otorisasi.
+
+    # 1. Cari Profil Perusahaan
+    result = await db.execute(
+        select(PerusahaanProfile).where(PerusahaanProfile.user_id == user_id)
+    )
+    perusahaan = result.scalars().first()
+    if not perusahaan:
+        raise HTTPException(status_code=404, detail="Profil perusahaan tidak ditemukan")
+
+    # 2. Cari Lamaran beserta Relasinya
+    result = await db.execute(
+        select(Application)
+        .options(
+            selectinload(Application.job),
+            selectinload(Application.cv_document),
+            selectinload(Application.cv_analysis)
+        )
+        .where(Application.id == application_id)
+    )
+    app_record = result.scalars().first()
+
+    if not app_record:
+        raise HTTPException(status_code=404, detail="Lamaran tidak ditemukan")
+
+    if app_record.job.perusahaan_id != perusahaan.id:
+        raise HTTPException(status_code=403, detail="Anda tidak memiliki akses ke lamaran ini")
+
+    if app_record.status != "upload_cv":
+        raise HTTPException(status_code=400, detail=f"Lamaran ini sudah diproses (Status: {app_record.status})")
+        
+    if app_record.cv_analysis:
+         raise HTTPException(status_code=400, detail="Analisis AI sudah pernah dilakukan untuk lamaran ini")
+
+    # 3. Ambil Teks dari CVDocument dan JD
+    cv_text = app_record.cv_document.extracted_text
+    job = app_record.job
+    jd_text = f"{job.deskripsi_pekerjaan}\n{job.kualifikasi}\n{job.tanggung_jawab}"
+    threshold = float(job.cv_threshold) if job.cv_threshold else 60.0
+    
+    ai_keywords = []
+    if job.ai_keywords_json:
+        try:
+            ai_keywords = json.loads(job.ai_keywords_json)
+        except Exception:
+            pass
+
+    # 4. Jalankan AI CV Analysis menggunakan Pre-computed Vector
+    embedding_service = request.app.state.embedding_service
+    cv_service = CVAnalysisService(embedding_service)
+    
+    cv_embedding_json = app_record.cv_document.embedding_vector
+    jd_embedding_json = app_record.job.jd_embedding
+    
+    cv_embedding = json.loads(cv_embedding_json) if cv_embedding_json else None
+    jd_embedding = json.loads(jd_embedding_json) if jd_embedding_json else None
+    
+    if cv_embedding and jd_embedding:
+        analysis_result = await cv_service.analyze_match_from_embeddings(
+            cv_embedding=cv_embedding,
+            jd_embedding=jd_embedding,
+            threshold=threshold,
+            cv_text=cv_text,
+            ai_keywords=ai_keywords
+        )
+    else:
+        # Fallback jika vektor belum ada di database
+        analysis_result = await cv_service.analyze_cv(
+            cv_text=cv_text,
+            job_description=jd_text,
+            threshold=threshold,
+            ai_keywords=ai_keywords
+        )
+
+    # 5. Update Application Status & Simpan Hasil
+    app_record.status = "cv_screening" if analysis_result["hasil"] == "lolos" else "ditolak_sistem"
+    
+    cv_analysis = CVAnalysisResult(
+        application_id=app_record.id,
+        cv_document_id=app_record.cv_document_id,
+        job_id=app_record.job_id,
+        cosine_similarity_score=analysis_result["cosine_similarity_score"],
+        skor_kecocokan=analysis_result["skor_kecocokan"],
+        threshold_digunakan=analysis_result["threshold_digunakan"],
+        kategori=analysis_result["kategori"],
+        hasil=analysis_result["hasil"],
+        waktu_proses_ms=analysis_result.get("waktu_proses_ms", 0),
+        detail_analisis=json.dumps(analysis_result.get("hybrid_details", {})) if "hybrid_details" in analysis_result else None,
+    )
+    db.add(cv_analysis)
+    
+    await db.commit()
+    await db.refresh(app_record)
+
+    return {
+        "message": "Analisis AI selesai",
+        "data": {
+            "application_id": app_record.id,
+            "status": app_record.status,
             "analisis_cv": {
-                "cosine_similarity_score": analysis_result.get("cosine_similarity_score"),
-                "skor_kecocokan": skor,
-                "threshold_digunakan": threshold,
-                "kategori": analysis_result.get("kategori"),
-                "hasil": analysis_result.get("hasil"),
-                "model_ai": analysis_result.get("model_ai"),
-                "waktu_proses_ms": analysis_result.get("waktu_proses_ms"),
-            },
-        },
+                "skor_kecocokan": float(cv_analysis.skor_kecocokan),
+                "kategori": cv_analysis.kategori,
+                "hasil": cv_analysis.hasil,
+            }
+        }
     }
 
 
@@ -443,9 +533,6 @@ async def get_application(
             "id": application.pelamar.id,
             "nama_lengkap": application.pelamar.nama_lengkap,
             "no_telepon": application.pelamar.no_telepon,
-            "pendidikan_terakhir": application.pelamar.pendidikan_terakhir,
-            "institusi_pendidikan": application.pelamar.institusi_pendidikan,
-            "jurusan": application.pelamar.jurusan,
             "linkedin_url": application.pelamar.linkedin_url,
             "portfolio_url": application.pelamar.portfolio_url,
         }
@@ -476,6 +563,42 @@ async def get_application(
             "model_ai": application.cv_analysis.model_ai,
             "waktu_proses_ms": application.cv_analysis.waktu_proses_ms,
             "analyzed_at": str(application.cv_analysis.analyzed_at) if application.cv_analysis.analyzed_at else None,
+            "hybrid_details": json.loads(application.cv_analysis.detail_analisis) if application.cv_analysis.detail_analisis else None,
         }
 
     return response
+
+class ApplicationStatusUpdate(BaseModel):
+    status: str
+
+@router.patch("/{application_id}/status", status_code=status.HTTP_200_OK)
+async def update_application_status(
+    application_id: str,
+    payload: ApplicationStatusUpdate,
+    current_user: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Mengubah status lamaran (misalnya dari cv_screening ke virtual_interview atau ditolak).
+    Hanya bisa dilakukan oleh perusahaan/admin.
+    """
+    role = current_user.get("role")
+    if role not in ["perusahaan", "admin"]:
+        raise HTTPException(status_code=403, detail="Hanya perusahaan/admin yang dapat mengubah status")
+        
+    result = await db.execute(select(Application).where(Application.id == application_id).options(joinedload(Application.job)))
+    app_record = result.scalars().first()
+    
+    if not app_record:
+        raise HTTPException(status_code=404, detail="Lamaran tidak ditemukan")
+        
+    if role == "perusahaan":
+        perusahaan_result = await db.execute(select(PerusahaanProfile).where(PerusahaanProfile.user_id == current_user.get("sub")))
+        perusahaan = perusahaan_result.scalars().first()
+        if not perusahaan or app_record.job.perusahaan_id != perusahaan.id:
+            raise HTTPException(status_code=403, detail="Anda tidak memiliki akses ke lamaran ini")
+
+    app_record.status = payload.status
+    await db.commit()
+    
+    return {"message": f"Status berhasil diubah menjadi {payload.status}", "status": payload.status}

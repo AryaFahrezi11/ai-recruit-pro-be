@@ -9,7 +9,8 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, defer
+from starlette.concurrency import run_in_threadpool
 
 from app.core.database import get_db
 from app.core.security import verify_token
@@ -49,7 +50,8 @@ async def get_jobs(
         select(JobPosting)
         .options(
             selectinload(JobPosting.perusahaan),
-            selectinload(JobPosting.kategori)
+            selectinload(JobPosting.kategori),
+            defer(JobPosting.jd_embedding)
         )
         .where(JobPosting.status == "active")
     )
@@ -197,6 +199,7 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
         .options(
             selectinload(JobPosting.perusahaan),
             selectinload(JobPosting.kategori),
+            defer(JobPosting.jd_embedding)
         )
         .where(JobPosting.id == job_id)
     )
@@ -291,9 +294,21 @@ async def create_job(
             detail="Profil perusahaan tidak ditemukan. Silakan lengkapi profil terlebih dahulu.",
         )
 
-    # Generate embedding untuk deskripsi pekerjaan
+    import json
+    
+    # Extract AI keywords
+    ai_keywords = []
+    if req.ai_keywords_json:
+        try:
+            ai_keywords = json.loads(req.ai_keywords_json)
+        except Exception:
+            pass
+    keywords_str = ", ".join(ai_keywords)
+    
+    # Generate embedding untuk deskripsi pekerjaan gabungan
     embedding_service = request.app.state.embedding_service
-    jd_embedding = embedding_service.get_embedding(req.deskripsi_pekerjaan)
+    full_jd_text = f"{req.deskripsi_pekerjaan}\n{req.kualifikasi}\n{req.tanggung_jawab}\nKeahlian Utama: {keywords_str}"
+    jd_embedding = await run_in_threadpool(embedding_service.get_embedding, full_jd_text)
 
     # Buat lowongan baru
     new_job = JobPosting(
@@ -405,9 +420,22 @@ async def update_job(
                     pass
             setattr(job, key, value)
 
-    if "deskripsi_pekerjaan" in update_data:
+    # Check if any text field changed that affects embeddings
+    text_fields_changed = any(field in update_data for field in ["deskripsi_pekerjaan", "kualifikasi", "tanggung_jawab", "ai_keywords_json"])
+    
+    if text_fields_changed:
+        ai_keywords = []
+        if job.ai_keywords_json:
+            try:
+                ai_keywords = json.loads(job.ai_keywords_json)
+            except Exception:
+                pass
+        keywords_str = ", ".join(ai_keywords)
+        
+        full_jd_text = f"{job.deskripsi_pekerjaan or ''}\n{job.kualifikasi or ''}\n{job.tanggung_jawab or ''}\nKeahlian Utama: {keywords_str}"
+        
         embedding_service = request.app.state.embedding_service
-        jd_embedding = embedding_service.get_embedding(update_data["deskripsi_pekerjaan"])
+        jd_embedding = await run_in_threadpool(embedding_service.get_embedding, full_jd_text)
         job.jd_embedding = json.dumps(jd_embedding)
 
     await db.commit()

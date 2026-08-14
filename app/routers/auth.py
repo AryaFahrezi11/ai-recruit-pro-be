@@ -2,7 +2,7 @@
 🛣️ Auth Router
 Endpoint: POST /api/auth/register, POST /api/auth/login
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.user import RegisterRequest, LoginRequest, TokenResponse, RegisterResponse, VerifyOTPRequest
 from app.core.database import get_db
@@ -12,12 +12,12 @@ router = APIRouter()
 
 
 @router.post("/register", response_model=RegisterResponse)
-async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(req: RegisterRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     """
     Mendaftarkan user baru (pelamar/perusahaan/kampus) dan mengirimkan OTP.
     """
     auth_service = AuthService(db)
-    return await auth_service.register(email=req.email, password=req.password, role=req.role)
+    return await auth_service.register(email=req.email, password=req.password, role=req.role, background_tasks=background_tasks)
 
 
 @router.post("/verify-otp", response_model=TokenResponse)

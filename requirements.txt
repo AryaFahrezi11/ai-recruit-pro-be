@@ -27,3 +27,5 @@ PyPDF2
 pydantic[email]
 pydantic-settings
 python-dotenv
+psutil
+python-dateutil

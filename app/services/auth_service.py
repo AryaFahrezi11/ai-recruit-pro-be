@@ -10,10 +10,40 @@ from fastapi import HTTPException, status
 from datetime import datetime, timedelta, timezone
 import random
 import string
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import json
+from fastapi import BackgroundTasks
 
+from app.models.setting import SystemSetting
 from app.core.security import hash_password, verify_password, create_access_token
 from app.models.user import User, PelamarProfile, PerusahaanProfile, KampusProfile
 
+
+def send_otp_email_sync(host: str, port: int, user: str, password: str, sender_email: str, recipient: str, otp_code: str):
+    if not host or not sender_email:
+        print("SMTP settings are incomplete. Skipping email.")
+        return
+        
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = recipient
+        msg['Subject'] = "Kode OTP Anda - AI Recruit Pro"
+        
+        body = f"Halo,\n\nKode OTP Anda adalah: {otp_code}\n\nKode ini berlaku selama 10 menit. Jangan berikan kode ini kepada siapapun.\n\nTerima kasih,\nTim AI Recruit Pro"
+        msg.attach(MIMEText(body, 'plain'))
+        
+        server = smtplib.SMTP(host, port)
+        server.starttls()
+        if user and password:
+            server.login(user, password)
+        server.send_message(msg)
+        server.quit()
+        print(f"✅ OTP email sent to {recipient}")
+    except Exception as e:
+        print(f"❌ Failed to send OTP email: {e}")
 
 class AuthService:
     """
@@ -22,7 +52,7 @@ class AuthService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def register(self, email: str, password: str, role: str) -> dict:
+    async def register(self, email: str, password: str, role: str, background_tasks: BackgroundTasks = None) -> dict:
         """Mendaftarkan user baru."""
         # 1. Cek apakah email sudah terdaftar
         result = await self.db.execute(select(User).where(User.email == email))
@@ -62,11 +92,47 @@ class AuthService:
         
         await self.db.commit()
 
-        # 5. Mock Email Sending
-        print("=======================================")
-        print(f"📧 MOCK EMAIL DIKIRIM KE: {email}")
-        print(f"🔑 KODE OTP ANDA: {otp_code}")
-        print("=======================================")
+        # 5. Send OTP Email
+        settings_query = await self.db.execute(select(SystemSetting).where(
+            SystemSetting.key.in_(['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from'])
+        ))
+        settings_db = settings_query.scalars().all()
+        
+        smtp_config = {
+            'smtp_host': '',
+            'smtp_port': 587,
+            'smtp_user': '',
+            'smtp_pass': '',
+            'smtp_from': ''
+        }
+        
+        for s in settings_db:
+            try: val = json.loads(s.value)
+            except: val = s.value
+            
+            if s.key == 'smtp_port':
+                try: smtp_config[s.key] = int(val)
+                except: pass
+            else:
+                smtp_config[s.key] = val
+                
+        if background_tasks and smtp_config.get('smtp_host') and smtp_config.get('smtp_from'):
+            background_tasks.add_task(
+                send_otp_email_sync,
+                smtp_config['smtp_host'],
+                smtp_config['smtp_port'],
+                smtp_config['smtp_user'],
+                smtp_config['smtp_pass'],
+                smtp_config['smtp_from'],
+                email,
+                otp_code
+            )
+        else:
+            print("=======================================")
+            print("⚠️ SMTP not configured or background_tasks missing.")
+            print(f"📧 MOCK EMAIL DIKIRIM KE: {email}")
+            print(f"🔑 KODE OTP ANDA: {otp_code}")
+            print("=======================================")
 
         return {
             "status": "success",

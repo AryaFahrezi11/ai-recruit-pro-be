@@ -42,7 +42,7 @@ async def get_jobs(
     search: str = Query(default=None, description="Cari berdasarkan judul posisi atau kota"),
     tipe_pekerjaan: str = Query(default=None, description="Filter: full_time, part_time, contract, internship"),
     lokasi_kerja: str = Query(default=None, description="Filter: onsite, remote, hybrid"),
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
     """Mendapatkan daftar semua lowongan kerja yang aktif."""

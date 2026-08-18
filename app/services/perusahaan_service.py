@@ -174,7 +174,7 @@ class PerusahaanService:
                     "tanggung_jawab": j.tanggung_jawab,
                     "tanggal_buka": j.tanggal_buka,
                     "tanggal_tutup": j.tanggal_tutup,
-                    "is_promoted": j.is_promoted,
+                    "is_promoted": getattr(j, 'is_promoted', False),
                 } for j in active_jobs
             ]
         }

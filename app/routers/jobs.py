@@ -13,8 +13,30 @@ from sqlalchemy.orm import selectinload, defer
 from starlette.concurrency import run_in_threadpool
 
 from app.core.database import get_db
-from app.core.security import verify_token
-from app.models.user import PerusahaanProfile
+from app.core.security import verify_token, verify_token_optional
+from app.models.user import PerusahaanProfile, PelamarProfile
+import re
+
+def calculate_pofit_score(job: JobPosting, user_profile: PelamarProfile) -> int:
+    """Menghitung persentase kecocokan antara lowongan dan pelamar secara sederhana."""
+    if not user_profile:
+        return 92 # Default score jika user belum login atau profil kosong
+        
+    job_text = f"{job.judul_posisi or ''} {job.deskripsi_pekerjaan or ''} {job.kualifikasi or ''} {job.pendidikan_min or ''}".lower()
+    job_words = set(re.findall(r'\w+', job_text))
+    
+    user_text = f"{user_profile.keahlian or ''} {user_profile.judul_posisi or ''} {user_profile.pengalaman_kerja or ''} {user_profile.riwayat_pendidikan or ''}".lower()
+    user_words = set(re.findall(r'\w+', user_text))
+    
+    if not job_words or not user_words:
+        return 50
+        
+    intersection = job_words.intersection(user_words)
+    base_score = 60
+    match_percentage = (len(intersection) / len(job_words)) * 100 if len(job_words) > 0 else 0
+    final_score = base_score + (match_percentage * 1.5)
+    
+    return int(min(98, max(60, final_score)))
 from app.models.job import JobPosting, JobCategory
 from app.schemas.job import JobPostingCreate, JobPostingResponse
 from app.services.job_service import JobService
@@ -38,6 +60,7 @@ async def get_my_jobs(current_user: dict = Depends(get_current_user), db: AsyncS
 
 @router.get("/")
 async def get_jobs(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     search: str = Query(default=None, description="Cari berdasarkan judul posisi atau kota"),
     tipe_pekerjaan: str = Query(default=None, description="Filter: full_time, part_time, contract, internship"),
@@ -78,9 +101,26 @@ async def get_jobs(
     result = await db.execute(query)
     jobs = result.scalars().all()
 
+    # Ambil user token untuk hitung score
+    token_payload = verify_token_optional(request)
+    user_profile = None
+    if token_payload and token_payload.get("sub"):
+        result_profile = await db.execute(select(PelamarProfile).where(PelamarProfile.user_id == token_payload["sub"]))
+        user_profile = result_profile.scalars().first()
+
     # Format response
     data = []
     for job in jobs:
+        match_score = calculate_pofit_score(job, user_profile)
+        
+        # Penentuan alasan (reason) berdasar score
+        if match_score >= 85:
+            reason = "Sangat Cocok! Keahlian dan pengalaman Anda sangat relevan dengan posisi ini."
+        elif match_score >= 70:
+            reason = "Cukup Cocok. Anda memenuhi sebagian kriteria yang dibutuhkan."
+        else:
+            reason = "Kualifikasi Anda memiliki sedikit kecocokan dengan posisi ini."
+
         job_dict = {
             "id": job.id,
             "judul_posisi": job.judul_posisi,
@@ -101,13 +141,14 @@ async def get_jobs(
             "tanggal_tutup": str(job.tanggal_tutup) if job.tanggal_tutup else None,
             "created_at": str(job.created_at) if job.created_at else None,
             
-            # New fields
             "department": job.department,
             "experience_level": job.experience_level,
             "benefits_json": job.benefits_json,
             "ai_keywords_json": job.ai_keywords_json,
             "video_questions_json": job.video_questions_json,
             "openings_count": job.openings_count,
+            "match_score": match_score,
+            "reason": reason,
         }
         # Tambahkan info perusahaan
         if job.perusahaan:

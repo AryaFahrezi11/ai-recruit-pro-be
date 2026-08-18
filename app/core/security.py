@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from jose import JWTError, jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 
 from app.core.config import settings
@@ -76,3 +76,15 @@ def verify_token(token: str = Depends(oauth2_scheme)) -> dict:
         return payload
     except JWTError:
         raise credentials_exception
+
+def verify_token_optional(request: Request) -> dict | None:
+    """Memverifikasi token JWT dari header secara opsional tanpa melempar error."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except JWTError:
+        return None

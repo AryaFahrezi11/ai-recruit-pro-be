@@ -7,11 +7,27 @@ import os
 import json
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload, joinedload
+import shutil
+import cloudinary
+import cloudinary.uploader
+from app.core.config import settings
+from app.services.video_ai_service import video_ai_service
+from supabase import create_client, Client
+
+# Konfigurasi Cloudinary
+cloudinary.config(
+    cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+    api_key=settings.CLOUDINARY_API_KEY,
+    api_secret=settings.CLOUDINARY_API_SECRET
+)
+
+# Hubungkan ke Supabase (gunakan konfigurasi asli milik user)
+supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 
 from app.core.database import get_db
 from app.core.security import verify_token
@@ -212,6 +228,13 @@ async def get_applications(
                     "hasil": app.cv_analysis.hasil,
                     "hybrid_details": json.loads(app.cv_analysis.detail_analisis) if app.cv_analysis.detail_analisis else None,
                 }
+            if hasattr(app, "ai_result") and app.ai_result:
+                try:
+                    app_dict["ai_result"] = json.loads(app.ai_result)
+                except:
+                    app_dict["ai_result"] = app.ai_result
+            if hasattr(app, "video_url") and app.video_url:
+                app_dict["video_url"] = app.video_url
             data.append(app_dict)
 
         return {"message": "Daftar lamaran masuk", "total": len(data), "data": data}
@@ -565,6 +588,15 @@ async def get_application(
             "analyzed_at": str(application.cv_analysis.analyzed_at) if application.cv_analysis.analyzed_at else None,
             "hybrid_details": json.loads(application.cv_analysis.detail_analisis) if application.cv_analysis.detail_analisis else None,
         }
+        
+    if hasattr(application, "ai_result") and application.ai_result:
+        import json
+        try:
+            response["ai_result"] = json.loads(application.ai_result)
+        except:
+            response["ai_result"] = application.ai_result
+    if hasattr(application, "video_url") and application.video_url:
+        response["video_url"] = application.video_url
 
     return response
 
@@ -602,3 +634,143 @@ async def update_application_status(
     await db.commit()
     
     return {"message": f"Status berhasil diubah menjadi {payload.status}", "status": payload.status}
+
+import queue
+import threading
+import urllib.request
+from fastapi import BackgroundTasks, File, UploadFile, HTTPException, Depends, status
+
+# 1. Inisialisasi Antrian Video
+video_queue = queue.Queue()
+
+def video_worker():
+    while True:
+        task = video_queue.get()
+        if task is None:
+            break
+        app_id, temp_path, pertanyaan = task
+        try:
+            proses_video_background(app_id, temp_path, pertanyaan)
+        except Exception as e:
+            print(f"[ERROR VIDEO WORKER] {e}")
+        finally:
+            video_queue.task_done()
+
+# Start background worker thread
+threading.Thread(target=video_worker, daemon=True).start()
+
+def proses_video_background(application_id: str, video_url: str, pertanyaan: str):
+    temp_video_path = f"temp_videos/analyze_{application_id}.mp4"
+    try:
+        # 1. Download Video dari Cloudinary ke lokal sementara
+        import os
+        os.makedirs("temp_videos", exist_ok=True)
+        urllib.request.urlretrieve(video_url, temp_video_path)
+
+        # 2. Jalankan Analisis AI
+        import json
+        hasil_ai = video_ai_service.analisa_video(temp_video_path, pertanyaan)
+        
+        # 3. Simpan Hasil ke Database via SQLAlchemy
+        import asyncio
+        from app.core.database import async_session
+        from sqlalchemy.future import select
+        
+        async def update_db():
+            async with async_session() as session:
+                result = await session.execute(select(Application).where(Application.id == application_id))
+                app_record = result.scalars().first()
+                if app_record:
+                    app_record.ai_result = json.dumps(hasil_ai) if isinstance(hasil_ai, dict) else str(hasil_ai)
+                    app_record.status = "human_validation"
+                    await session.commit()
+        
+        asyncio.run(update_db())
+
+    except Exception as e:
+        print(f"[ERROR BACKGROUND TASK] {e}")
+    finally:
+        # 4. Hapus file sementara
+        if os.path.exists(temp_video_path):
+            os.remove(temp_video_path)
+
+@router.post("/{application_id}/upload-video")
+async def upload_interview_video(
+    application_id: str,
+    video: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    if not video.filename.endswith(".mp4"):
+        raise HTTPException(status_code=400, detail="Hanya format .mp4 yang diizinkan.")
+
+    # Cek apakah aplikasi sudah memiliki video (Mencegah unggah lebih dari sekali)
+    try:
+        result = await db.execute(select(Application).where(Application.id == application_id))
+        app_data = result.scalars().first()
+        if app_data:
+            if app_data.video_url or app_data.status == "video_analysis":
+                raise HTTPException(status_code=400, detail="Anda sudah mengunggah video. Proses ini hanya dapat dilakukan satu kali.")
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        print(f"Error checking application data: {e}")
+
+    temp_dir = "temp_videos"
+    import os
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_path = os.path.join(temp_dir, video.filename)
+
+    import shutil
+    with open(temp_path, "wb") as buffer:
+        shutil.copyfileobj(video.file, buffer)
+
+    # Langsung upload ke Cloudinary
+    try:
+        import cloudinary.uploader
+        upload_result = cloudinary.uploader.upload(
+            temp_path, 
+            resource_type="video",
+            folder="ai_recruit_interviews"
+        )
+        video_url = upload_result.get("secure_url")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gagal mengunggah video ke Cloudinary: {e}")
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+    # Update database via SQLAlchemy
+    try:
+        result = await db.execute(select(Application).where(Application.id == application_id))
+        app_record = result.scalars().first()
+        if app_record:
+            app_record.status = "video_analysis"
+            app_record.video_url = video_url
+            await db.commit()
+    except Exception as e:
+        print(f"Gagal update status via SQLAlchemy: {e}")
+
+    return {
+        "status": "success",
+        "message": "Video Wawancara Berhasil Disimpan. Terima kasih telah menyelesaikan tahap ini. Rekaman Anda telah diterima oleh sistem dan sedang menunggu peninjauan lebih lanjut oleh HRD. Anda dapat menutup halaman ini dengan aman."
+    }
+
+@router.post("/{application_id}/analyze-video")
+async def analyze_interview_video(
+    application_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    # Dapatkan URL video dari Database
+    result = await db.execute(select(Application).where(Application.id == application_id))
+    app_data = result.scalars().first()
+    
+    if not app_data or not app_data.video_url:
+        raise HTTPException(status_code=400, detail="Video tidak ditemukan untuk kandidat ini.")
+    
+    video_url = app_data.video_url
+    pertanyaan_perusahaan = "Ceritakan tentang pengalaman kerja dan kelebihan Anda"
+    
+    # Masukkan ke dalam antrean AI
+    video_queue.put((application_id, video_url, pertanyaan_perusahaan))
+    
+    return {"status": "success", "message": "Proses analisis AI video dimasukkan ke antrean."}

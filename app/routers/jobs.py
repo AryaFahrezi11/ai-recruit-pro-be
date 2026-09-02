@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.database import get_db
 from app.core.security import verify_token, verify_token_optional
 from app.models.user import PerusahaanProfile, PelamarProfile
+from app.models import JobPosting
 import re
 
 def calculate_pofit_score(job: JobPosting, user_profile: PelamarProfile) -> int:
@@ -512,3 +513,4 @@ async def update_job_status(
     """Mengubah status lowongan."""
     service = JobService(db)
     return await service.update_job_status(current_user["sub"], job_id, status_data.status)
+

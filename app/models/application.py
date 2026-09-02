@@ -35,6 +35,8 @@ class Application(Base):
     cv_document_id = Column(String, ForeignKey("cv_documents.id", ondelete="RESTRICT"), nullable=False)
     status = Column(String(20), default="dikirim", index=True)
     catatan_pelamar = Column(Text)
+    video_url = Column(String(500), nullable=True)
+    ai_result = Column(Text, nullable=True)
     applied_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

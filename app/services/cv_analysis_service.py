@@ -27,6 +27,8 @@ class CVAnalysisService:
         threshold: float = None,
         cv_text: str = None,
         ai_keywords: list[str] = None,
+        cv_education: str = None,
+        job_education: str = None,
     ) -> dict:
         """
         Menganalisis kecocokan secara langsung menggunakan vektor yang sudah ada.
@@ -38,6 +40,8 @@ class CVAnalysisService:
             threshold=threshold,
             cv_text=cv_text,
             ai_keywords=ai_keywords,
+            cv_education=cv_education,
+            job_education=job_education,
         )
         return result
 
@@ -47,6 +51,8 @@ class CVAnalysisService:
         job_description: str,
         threshold: float = None,
         ai_keywords: list[str] = None,
+        cv_education: str = None,
+        job_education: str = None,
     ) -> dict:
         """
         Menganalisis kecocokan CV dengan Job Description.
@@ -70,6 +76,8 @@ class CVAnalysisService:
             text_jd=cleaned_jd,
             threshold=threshold,
             ai_keywords=ai_keywords,
+            cv_education=cv_education,
+            job_education=job_education,
         )
 
         return result
@@ -94,15 +102,21 @@ class CVAnalysisService:
             dict: Hasil analisis + teks yang diekstrak
         """
         # Ekstrak teks berdasarkan tipe file
+        is_ocr_used = False
         if file_type == "pdf":
-            raw_text = extract_text_from_pdf(file_content)
+            raw_text, is_ocr_used = extract_text_from_pdf(file_content)
         elif file_type == "txt":
             raw_text = file_content.decode("utf-8")
         else:
             raise ValueError(f"Tipe file '{file_type}' tidak didukung")
 
         if not raw_text or len(raw_text.strip()) < 50:
-            raise ValueError("Teks CV terlalu pendek atau tidak bisa diekstrak")
+            raise ValueError("Teks CV terlalu pendek atau tidak bisa diekstrak (bahkan setelah dicoba dengan OCR).")
+
+        # Parsing Struktur CV (Pendidikan & Kontak)
+        from app.utils.pdf_extractor import extract_contact, extract_education
+        kontak = extract_contact(raw_text)
+        pendidikan = extract_education(raw_text)
 
         # Analisis CV
         result = await self.analyze_cv(
@@ -110,6 +124,12 @@ class CVAnalysisService:
             job_description=job_description,
             threshold=threshold,
         )
+
+        # Tambahkan data ekstraksi parser
+        result["is_ocr_used"] = is_ocr_used
+        result["email"] = kontak["email"]
+        result["phone"] = kontak["phone"]
+        result["pendidikan_tertinggi"] = pendidikan
 
         result["extracted_text"] = raw_text
         result["cleaned_text"] = clean_text(raw_text)

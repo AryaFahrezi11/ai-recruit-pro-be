@@ -11,6 +11,31 @@ from sklearn.metrics.pairwise import cosine_similarity
 from app.core.config import settings
 
 
+def check_education_eligibility(cv_edu: str, job_edu: str) -> bool:
+    if not job_edu or str(job_edu).strip() in ["", "-", "None"]:
+        return True
+    
+    mapping = {
+        "S3/Doktor": 5, "S2/Master": 4, "S1/Sarjana": 3, 
+        "D3/Diploma": 2, "SMA/SMK": 1, "-": 0
+    }
+    
+    from app.utils.pdf_extractor import extract_education
+    if cv_edu not in mapping:
+        cv_edu = extract_education(str(cv_edu))
+    if job_edu not in mapping:
+        job_edu = extract_education(str(job_edu))
+    
+    cv_score = mapping.get(cv_edu, 0)
+    job_score = mapping.get(job_edu, 0)
+    
+    if job_score == 0:
+        return True
+    if cv_score < job_score:
+        return False
+    return True
+
+
 class EmbeddingService:
     """
     Service untuk mengelola model SBERT dan menghasilkan embedding.
@@ -65,7 +90,7 @@ class EmbeddingService:
         return float(similarity)
 
 
-    def analyze_match_from_embeddings(self, cv_embedding: list[float], jd_embedding: list[float], threshold: float = None, cv_text: str = None, ai_keywords: list[str] = None) -> dict:
+    def analyze_match_from_embeddings(self, cv_embedding: list[float], jd_embedding: list[float], threshold: float = None, cv_text: str = None, ai_keywords: list[str] = None, cv_education: str = None, job_education: str = None) -> dict:
         if threshold is None:
             threshold = settings.CV_THRESHOLD_DEFAULT
 
@@ -103,6 +128,15 @@ class EmbeddingService:
             kategori = "tidak_cocok"
 
         hasil = "lolos" if skor >= threshold else "ditolak"
+        
+        # Override hasil if education is not eligible
+        is_edu_eligible = True
+        if cv_education and job_education:
+            is_edu_eligible = check_education_eligibility(cv_education, job_education)
+            if not is_edu_eligible:
+                hasil = "ditolak"
+                kategori = "tidak_memenuhi_syarat_pendidikan"
+
         elapsed = (time.time() - start_time) * 1000
 
         return {
@@ -120,7 +154,7 @@ class EmbeddingService:
             }
         }
 
-    def analyze_match(self, text_cv: str, text_jd: str, threshold: float = None, ai_keywords: list[str] = None) -> dict:
+    def analyze_match(self, text_cv: str, text_jd: str, threshold: float = None, ai_keywords: list[str] = None, cv_education: str = None, job_education: str = None) -> dict:
         """
         Menganalisis kecocokan CV dengan Job Description secara langsung.
         Fungsi ini menggabungkan embedding + similarity dalam satu langkah.
@@ -130,6 +164,8 @@ class EmbeddingService:
             text_jd: Teks Job Description
             threshold: Ambang batas kelulusan (default dari config)
             ai_keywords: Daftar keahlian spesifik untuk Hybrid Search
+            cv_education: Pendidikan tertinggi pelamar
+            job_education: Pendidikan minimal posisi
 
         Returns:
             dict: Hasil analisis lengkap
@@ -176,6 +212,14 @@ class EmbeddingService:
 
         # Keputusan
         hasil = "lolos" if skor >= threshold else "gagal"
+        
+        # Override hasil if education is not eligible
+        is_edu_eligible = True
+        if cv_education and job_education:
+            is_edu_eligible = check_education_eligibility(cv_education, job_education)
+            if not is_edu_eligible:
+                hasil = "gagal"
+                kategori = "tidak_memenuhi_syarat_pendidikan"
 
         elapsed_ms = round((time.time() - start_time) * 1000, 2)
 

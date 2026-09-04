@@ -20,9 +20,10 @@ python-multipart
 sentence-transformers
 scikit-learn
 
-# --- PDF Processing ---
-PyPDF2
-
+# --- PDF Processing & OCR ---
+PyMuPDF
+pytesseract
+Pillow
 # --- Utilities ---
 pydantic[email]
 pydantic-settings

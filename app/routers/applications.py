@@ -29,7 +29,7 @@ cloudinary.config(
 # Hubungkan ke Supabase (gunakan konfigurasi asli milik user)
 supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 
-from app.core.database import get_db
+from app.core.database import get_db, async_session
 from app.core.security import verify_token
 from app.models.user import PelamarProfile, PerusahaanProfile
 from app.models.job import JobPosting
@@ -196,6 +196,10 @@ async def get_applications(
                     "file_url": app.cv_document.file_url,
                     "file_type": app.cv_document.file_type,
                     "file_size_kb": app.cv_document.file_size_kb,
+                    "email": app.cv_document.email,
+                    "phone": app.cv_document.phone,
+                    "pendidikan_tertinggi": app.cv_document.pendidikan_tertinggi,
+                    "is_ocr_used": app.cv_document.is_ocr_used,
                 }
             if app.job:
                 app_dict["job"] = {
@@ -229,10 +233,7 @@ async def get_applications(
                     "hybrid_details": json.loads(app.cv_analysis.detail_analisis) if app.cv_analysis.detail_analisis else None,
                 }
             if hasattr(app, "ai_result") and app.ai_result:
-                try:
-                    app_dict["ai_result"] = json.loads(app.ai_result)
-                except:
-                    app_dict["ai_result"] = app.ai_result
+                app_dict["ai_result"] = app.ai_result
             if hasattr(app, "video_url") and app.video_url:
                 app_dict["video_url"] = app.video_url
             data.append(app_dict)
@@ -246,10 +247,93 @@ async def get_applications(
         )
 
 
+
+async def run_ai_screening_background(application_id: str, embedding_service):
+    async with async_session() as db:
+        try:
+            # Cari Lamaran beserta Relasinya
+            result = await db.execute(
+                select(Application)
+                .options(
+                    selectinload(Application.job),
+                    selectinload(Application.cv_document),
+                    selectinload(Application.cv_analysis)
+                )
+                .where(Application.id == application_id)
+            )
+            app_record = result.scalars().first()
+            if not app_record or not app_record.cv_document or not app_record.job:
+                return
+            
+            cv_doc = app_record.cv_document
+            job = app_record.job
+
+            cv_text = cv_doc.extracted_text
+            jd_text = f"{job.deskripsi_pekerjaan}\n{job.kualifikasi}\n{job.tanggung_jawab}"
+            threshold = float(job.cv_threshold) if job.cv_threshold else 60.0
+            
+            ai_keywords = []
+            if job.ai_keywords_json:
+                try:
+                    ai_keywords = json.loads(job.ai_keywords_json)
+                except Exception:
+                    pass
+
+            cv_service = CVAnalysisService(embedding_service)
+            
+            cv_embedding_json = cv_doc.embedding_vector
+            jd_embedding_json = job.jd_embedding
+            
+            cv_embedding = json.loads(cv_embedding_json) if cv_embedding_json else None
+            jd_embedding = json.loads(jd_embedding_json) if jd_embedding_json else None
+            
+            if cv_embedding and jd_embedding:
+                analysis_result = await cv_service.analyze_match_from_embeddings(
+                    cv_embedding=cv_embedding,
+                    jd_embedding=jd_embedding,
+                    threshold=threshold,
+                    cv_text=cv_text,
+                    ai_keywords=ai_keywords,
+                    cv_education=cv_doc.pendidikan_tertinggi,
+                    job_education=job.pendidikan_min
+                )
+            else:
+                analysis_result = await cv_service.analyze_cv(
+                    cv_text=cv_text,
+                    job_description=jd_text,
+                    threshold=threshold,
+                    ai_keywords=ai_keywords,
+                    cv_education=cv_doc.pendidikan_tertinggi,
+                    job_education=job.pendidikan_min
+                )
+
+            # Update Application Status & Simpan Hasil
+            app_record.status = "virtual_interview" if analysis_result["hasil"] == "lolos" else "ditolak"
+            
+            cv_analysis = CVAnalysisResult(
+                application_id=app_record.id,
+                cv_document_id=app_record.cv_document_id,
+                job_id=app_record.job_id,
+                cosine_similarity_score=analysis_result["cosine_similarity_score"],
+                skor_kecocokan=analysis_result["skor_kecocokan"],
+                threshold_digunakan=analysis_result["threshold_digunakan"],
+                kategori=analysis_result["kategori"],
+                hasil=analysis_result["hasil"],
+                waktu_proses_ms=analysis_result.get("waktu_proses_ms", 0),
+                detail_analisis=json.dumps(analysis_result.get("hybrid_details", {})) if "hybrid_details" in analysis_result else None,
+            )
+            db.add(cv_analysis)
+            
+            await db.commit()
+        except Exception as e:
+            print("Background AI Screening failed:", e)
+
+
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_application(
     request: Request,
     payload: ApplicationCreate,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(verify_token),
     db: AsyncSession = Depends(get_db),
 ):
@@ -310,12 +394,50 @@ async def create_application(
     cv_doc = result.scalars().first()
     
     if not cv_doc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="CV Profil tidak ditemukan. Silakan lengkapi dan simpan Profil/CV di dashboard terlebih dahulu.",
-        )
+        # Otomatis generate CVDocument dari profil pelamar jika belum ada di database
+        from starlette.concurrency import run_in_threadpool
+        from app.utils.pdf_extractor import extract_contact, extract_education
+        
+        cv_text_parts = [
+            f"Nama: {pelamar.nama_lengkap or ''}",
+            f"Posisi/Jabatan: {pelamar.judul_posisi or ''}",
+            f"Deskripsi Diri: {pelamar.ringkasan_diri or ''}",
+            f"Keahlian (Skills): {pelamar.keahlian or ''}",
+            f"Pengalaman Kerja:\n{pelamar.pengalaman_kerja or ''}",
+            f"Pendidikan:\n{pelamar.riwayat_pendidikan or ''}"
+        ]
+        cv_text = "\n".join(cv_text_parts)
+        
+        try:
+            embedding_service = request.app.state.embedding_service
+            cv_embedding = await run_in_threadpool(embedding_service.get_embedding, cv_text)
+            kontak = extract_contact(cv_text)
+            pendidikan_tertinggi = extract_education(cv_text)
+            
+            cv_doc = CVDocument(
+                pelamar_id=pelamar.id,
+                nama_file="Profil_CV_Dashboard.json",
+                file_url="profil-dashboard",
+                file_type="json",
+                file_size_kb=len(cv_text) // 1024,
+                extracted_text=cv_text,
+                cleaned_text=clean_text(cv_text),
+                embedding_vector=json.dumps(cv_embedding),
+                email=kontak["email"],
+                phone=kontak["phone"],
+                pendidikan_tertinggi=pendidikan_tertinggi,
+                is_ocr_used=False
+            )
+            db.add(cv_doc)
+            await db.flush()
+        except Exception as e:
+            print("Failed to auto-generate CVDocument on apply:", e)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CV Profil tidak ditemukan. Silakan lengkapi dan simpan Profil/CV di dashboard terlebih dahulu.",
+            )
 
-    # 5. Buat Application (tanpa AI untuk saat ini)
+    # 5. Buat Application 
     new_application = Application(
         pelamar_id=pelamar.id,
         job_id=job.id,
@@ -324,12 +446,18 @@ async def create_application(
         status="upload_cv"
     )
     db.add(new_application)
-    
     await db.commit()
     await db.refresh(new_application)
+    
+    # 6. Jalankan Seleksi AI di Background agar API sangat cepat merespons (Skala besar)
+    background_tasks.add_task(
+        run_ai_screening_background,
+        application_id=new_application.id,
+        embedding_service=request.app.state.embedding_service
+    )
 
     return {
-        "message": "Lamaran berhasil dikirim (Menunggu Seleksi)",
+        "message": "Lamaran berhasil dikirim (Sedang dianalisis AI)",
         "data": {
             "application_id": new_application.id,
             "status": new_application.status,
@@ -414,7 +542,9 @@ async def analyze_application_cv(
             jd_embedding=jd_embedding,
             threshold=threshold,
             cv_text=cv_text,
-            ai_keywords=ai_keywords
+            ai_keywords=ai_keywords,
+            cv_education=app_record.cv_document.pendidikan_tertinggi,
+            job_education=job.pendidikan_min
         )
     else:
         # Fallback jika vektor belum ada di database
@@ -422,7 +552,9 @@ async def analyze_application_cv(
             cv_text=cv_text,
             job_description=jd_text,
             threshold=threshold,
-            ai_keywords=ai_keywords
+            ai_keywords=ai_keywords,
+            cv_education=app_record.cv_document.pendidikan_tertinggi,
+            job_education=job.pendidikan_min
         )
 
     # 5. Update Application Status & Simpan Hasil
@@ -568,6 +700,10 @@ async def get_application(
             "file_url": application.cv_document.file_url,
             "file_type": application.cv_document.file_type,
             "file_size_kb": application.cv_document.file_size_kb,
+            "email": application.cv_document.email,
+            "phone": application.cv_document.phone,
+            "pendidikan_tertinggi": application.cv_document.pendidikan_tertinggi,
+            "is_ocr_used": application.cv_document.is_ocr_used,
             "extracted_text_preview": (
                 application.cv_document.extracted_text[:500] + "..."
                 if application.cv_document.extracted_text and len(application.cv_document.extracted_text) > 500
@@ -590,11 +726,7 @@ async def get_application(
         }
         
     if hasattr(application, "ai_result") and application.ai_result:
-        import json
-        try:
-            response["ai_result"] = json.loads(application.ai_result)
-        except:
-            response["ai_result"] = application.ai_result
+        response["ai_result"] = application.ai_result
     if hasattr(application, "video_url") and application.video_url:
         response["video_url"] = application.video_url
 
@@ -681,7 +813,7 @@ def proses_video_background(application_id: str, video_url: str, pertanyaan: str
                 result = await session.execute(select(Application).where(Application.id == application_id))
                 app_record = result.scalars().first()
                 if app_record:
-                    app_record.ai_result = json.dumps(hasil_ai) if isinstance(hasil_ai, dict) else str(hasil_ai)
+                    app_record.ai_result = hasil_ai if isinstance(hasil_ai, dict) else {"raw": str(hasil_ai)}
                     app_record.status = "human_validation"
                     await session.commit()
         

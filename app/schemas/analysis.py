@@ -57,5 +57,12 @@ class CVUploadAnalysisResponse(BaseModel):
     hasil: str
     model_ai: str
     waktu_proses_ms: float
+    
+    # Tambahan Data dari Parser & OCR
+    is_ocr_used: bool
+    email: str
+    phone: str
+    pendidikan_tertinggi: str
+    
     extracted_text_preview: str
     jumlah_karakter: int

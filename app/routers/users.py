@@ -184,6 +184,11 @@ async def update_profile(
             embedding_service = request.app.state.embedding_service
             cv_embedding = await run_in_threadpool(embedding_service.get_embedding, cv_text)
             
+            # Ekstrak data kontak dan pendidikan dari cv_text (Profile)
+            from app.utils.pdf_extractor import extract_contact, extract_education
+            kontak = extract_contact(cv_text)
+            pendidikan_tertinggi = extract_education(cv_text)
+            
             cv_doc = CVDocument(
                 pelamar_id=profile.id,
                 nama_file="Profil_CV_Dashboard.json",
@@ -192,7 +197,11 @@ async def update_profile(
                 file_size_kb=len(cv_text) // 1024,
                 extracted_text=cv_text,
                 cleaned_text=clean_text(cv_text),
-                embedding_vector=json.dumps(cv_embedding)
+                embedding_vector=json.dumps(cv_embedding),
+                email=kontak["email"],
+                phone=kontak["phone"],
+                pendidikan_tertinggi=pendidikan_tertinggi,
+                is_ocr_used=False
             )
             db.add(cv_doc)
             await db.commit()

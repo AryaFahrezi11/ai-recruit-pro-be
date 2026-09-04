@@ -11,19 +11,14 @@ from mediapipe.tasks.python import vision
 from moviepy import VideoFileClip
 from faster_whisper import WhisperModel
 from ultralytics import YOLO
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import concurrent.futures
 
 class VideoAIService:
     def __init__(self):
         print("\n[INFO] Memuat sistem analisis komersial...")
         self.yolo_model = YOLO('yolov8n-pose.pt')
         self.whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
-        
-        # Pengaman Konten
-        try:
-            self.intent_classifier = pipeline("zero-shot-classification", model="MoritzLawesch/deberta-v3-small-zeroshot")
-        except:
-            self.intent_classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
             
         # Summarizer
         print("[INFO] Memuat modul Summarizer...")
@@ -45,7 +40,8 @@ class VideoAIService:
         )
         self.detector_face = vision.FaceLandmarker.create_from_options(options)
 
-    def analisa_video(self, video_path: str, pertanyaan_perusahaan: str) -> dict:
+    def _process_video_frames(self, video_path: str):
+        """Menganalisis frame video untuk pose dan wajah."""
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         if fps <= 0: fps = 25.0
@@ -64,7 +60,8 @@ class VideoAIService:
         seconds = int(durasi_video % 60)
         durasi_teks = f"{minutes} Menit {seconds} Detik"
 
-        target_processing_fps = 5
+        # OPTIMASI: Kurangi target pemrosesan FPS ke 0.5 (1 frame setiap 2 detik)
+        target_processing_fps = 0.5
         skip_interval = max(1, int(round(fps / target_processing_fps)))
 
         frame_index, frame_count, valid_face_frames, total_brightness = 0, 0, 0, 0.0
@@ -73,13 +70,18 @@ class VideoAIService:
         prev_nose, prev_torso, prev_iris_left, prev_iris_right = None, None, None, None
 
         while cap.isOpened():
+            # Berikan jeda mikro agar Python GIL (Global Interpreter Lock) dilepas sejenak
+            # Ini memungkinkan FastAPI melayani request API lain tanpa freeze/hang.
+            time.sleep(0.005)
+
             ret, frame = cap.read()
             if not ret: break
 
             frame_index += 1
             if frame_index % skip_interval != 0: continue
 
-            frame = cv2.resize(frame, (640, 480))
+            # Resize frame untuk mempercepat pemrosesan
+            frame = cv2.resize(frame, (320, 240))
             h_frame, w_frame, _ = frame.shape
             frame_count += 1
             total_brightness += np.mean(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
@@ -130,25 +132,38 @@ class VideoAIService:
                             gerakan_tangan_counter += 1
         cap.release()
 
-        if frame_count == 0 or (valid_face_frames / frame_count) * 100 < 40.0:
-            return {"status": "INVALID", "pesan": "Wajah tidak terdeteksi dengan jelas."}
+        return {
+            "durasi_video": durasi_video,
+            "durasi_teks": durasi_teks,
+            "kualitas_teks": kualitas_teks,
+            "frame_count": frame_count,
+            "valid_face_frames": valid_face_frames,
+            "gerakan_kepala_counter": gerakan_kepala_counter,
+            "gerakan_tubuh_counter": gerakan_tubuh_counter,
+            "gerakan_tangan_counter": gerakan_tangan_counter,
+            "kontak_mata_fokus_counter": kontak_mata_fokus_counter,
+        }
 
-        # 3. Audio Transcription
-        audio_path = f"temp_audio_{int(time.time())}.wav"
+    def _process_audio(self, video_path: str, pertanyaan_perusahaan: str, durasi_video: float):
+        """Mengekstrak dan mentranskripsi audio, lalu merangkum jawaban."""
+        audio_path = f"temp_audio_{int(time.time())}_{np.random.randint(1000)}.wav"
         video = VideoFileClip(video_path)
         if video.audio is None:
             return {"status": "INVALID", "pesan": "Video bisu."}
 
         try:
             video.audio.write_audiofile(audio_path, logger=None)
-            segments, _ = self.whisper_model.transcribe(audio_path, beam_size=5)
+            segments, _ = self.whisper_model.transcribe(audio_path, beam_size=1)
             full_transcript = " ".join([s.text for s in list(segments)])
-            wps = round(len(full_transcript.split()) / durasi_video, 2)
+            wps = round(len(full_transcript.split()) / durasi_video, 2) if durasi_video > 0 else 0
         except Exception as e:
             return {"status": "INVALID", "pesan": str(e)}
         finally:
             if os.path.exists(audio_path):
-                os.remove(audio_path)
+                try:
+                    os.remove(audio_path)
+                except:
+                    pass
 
         if len(full_transcript.strip().split()) < 10:
             return {"status": "INVALID", "pesan": "Jawaban terlalu singkat."}
@@ -170,11 +185,49 @@ class VideoAIService:
         except:
             pass
 
+        return {
+            "status": "SUKSES",
+            "wps": wps,
+            "status_jawaban_teks": status_jawaban_teks,
+            "ringkasan_jawaban": ringkasan_jawaban,
+        }
+
+    def analisa_video(self, video_path: str, pertanyaan_perusahaan: str) -> dict:
+        # Jalankan pemrosesan video dan audio secara paralel (Threading)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_video = executor.submit(self._process_video_frames, video_path)
+            # Kita perlu durasi video untuk WPM, ambil dari VideoFileClip sementara
+            try:
+                clip = VideoFileClip(video_path)
+                durasi_video = clip.duration
+                clip.close()
+            except:
+                durasi_video = 1
+
+            future_audio = executor.submit(self._process_audio, video_path, pertanyaan_perusahaan, durasi_video)
+
+            # Tunggu kedua thread selesai
+            video_result = future_video.result()
+            audio_result = future_audio.result()
+
+        # Validasi Error dari proses audio
+        if audio_result.get("status") == "INVALID":
+            return audio_result
+
+        # Validasi Error dari proses video
+        frame_count = video_result["frame_count"]
+        valid_face_frames = video_result["valid_face_frames"]
+        if frame_count == 0 or (valid_face_frames / frame_count) * 100 < 40.0:
+            return {"status": "INVALID", "pesan": "Wajah tidak terdeteksi dengan jelas."}
+
+        # Kalkulasi Skor Akhir
         f = frame_count if frame_count > 0 else 1
-        e_persen = round(kontak_mata_fokus_counter / f * 100, 2)
-        g_persen = round(gerakan_tangan_counter / f * 100, 2)
-        p_persen = round(gerakan_tubuh_counter / f * 100, 2)
-        h_persen = round(gerakan_kepala_counter / f * 100, 2)
+        e_persen = round(video_result["kontak_mata_fokus_counter"] / f * 100, 2)
+        g_persen = round(video_result["gerakan_tangan_counter"] / f * 100, 2)
+        p_persen = round(video_result["gerakan_tubuh_counter"] / f * 100, 2)
+        h_persen = round(video_result["gerakan_kepala_counter"] / f * 100, 2)
+        
+        wps = audio_result["wps"]
 
         s_total = (1 if (1.5 <= wps <= 3.2) else 0) + \
                   (1 if (30.0 <= e_persen <= 80.0) else 0) + \
@@ -187,7 +240,6 @@ class VideoAIService:
         elif s_total == 2: kategori = "Cukup (Moderate Fit)"
         else: kategori = "Kurang (Low Fit)"
 
-        # Return TANPA parameter fisik
         return {
             "status": "SUKSES",
             "kategori_fit": kategori,
@@ -198,12 +250,10 @@ class VideoAIService:
                 "Attitude": f"{round(((s_total) / 5) * 100, 2)}%",
                 "Emotional Intelligent": f"{round(((s_total) / 5) * 100, 2)}%"
             },
-            "ringkasan_jawaban": ringkasan_jawaban,
-            "durasi_teks": durasi_teks,
-            "kualitas_teks": kualitas_teks,
-            "status_jawaban_teks": status_jawaban_teks
+            "ringkasan_jawaban": audio_result["ringkasan_jawaban"],
+            "durasi_teks": video_result["durasi_teks"],
+            "kualitas_teks": video_result["kualitas_teks"],
+            "status_jawaban_teks": audio_result["status_jawaban_teks"]
         }
 
 video_ai_service = VideoAIService()
-
-

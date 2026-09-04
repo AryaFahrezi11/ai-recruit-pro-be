@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Integer, Numeric
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -19,6 +20,13 @@ class CVDocument(Base):
     cleaned_text = Column(Text)
     # JSON disimpan sbg Text untuk kompatibilitas SQLite
     embedding_vector = Column(Text)
+    
+    # Hasil Ekstraksi Parser & OCR
+    email = Column(String(255))
+    phone = Column(String(50))
+    pendidikan_tertinggi = Column(String(50))
+    is_ocr_used = Column(Boolean, default=False)
+    
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
@@ -36,7 +44,7 @@ class Application(Base):
     status = Column(String(20), default="dikirim", index=True)
     catatan_pelamar = Column(Text)
     video_url = Column(String(500), nullable=True)
-    ai_result = Column(Text, nullable=True)
+    ai_result = Column(JSONB, nullable=True)
     applied_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

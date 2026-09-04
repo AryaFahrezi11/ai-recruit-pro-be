@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
+import asyncio
 
 from app.core.config import settings
 from app.services.embedding_service import EmbeddingService
@@ -31,9 +32,18 @@ async def lifespan(app: FastAPI):
     print("[INFO] Memuat model AI...")
     app.state.embedding_service = EmbeddingService()
     print(f"[OK] Model '{settings.SBERT_MODEL_NAME}' berhasil dimuat!")
+    # 3. Jalankan Async Persistent Video Worker di main event loop
+    from app.routers.applications import persistent_video_worker
+    worker_task = asyncio.create_task(persistent_video_worker())
+
     print(f"[OK] AI Recruit Pro Backend siap menerima request!")
     yield
     # Cleanup saat server mati
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
     print("[INFO] Server dimatikan. Model AI di-unload dari RAM.")
 
 

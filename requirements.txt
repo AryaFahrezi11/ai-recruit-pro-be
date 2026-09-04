@@ -2,44 +2,64 @@
 # AI Recruit Pro - Backend Dependencies
 # ============================================
 
-# --- Framework ---
+# --- Framework & ASGI Server ---
 fastapi
 uvicorn[standard]
 
-# --- Database (PostgreSQL / Supabase) ---
+# --- Database (PostgreSQL / Supabase / SQLite) ---
 sqlalchemy
 asyncpg
 psycopg2-binary
+aiosqlite
 
 # --- Auth & Security ---
 python-jose[cryptography]
+passlib[bcrypt]
 bcrypt
 python-multipart
 
-# --- AI / NLP ---
+# --- Cloud Services & Media Storage ---
+supabase
+cloudinary
+
+# --- Computer Vision & Video AI ---
+# OpenCV untuk manipulasi frame video
+opencv-python
+opencv-python-headless
+# MediaPipe untuk pelacakan 478 landmark wajah, iris mata, dan kontak mata
+mediapipe
+# YOLOv8 untuk estimasi pose tubuh & deteksi gestur tangan
+ultralytics
+# MoviePy untuk ekstraksi audio dari berkas video
+moviepy>=2.0.0
+# NumPy versi 2.0+ untuk stabilitas float math pada Python 3.12+
+numpy>=2.0.0
+
+# --- Audio AI & Speech-to-Text ---
+# Faster-Whisper untuk transkripsi ucapan bahasa Indonesia bersegmen waktu
+faster-whisper
+
+# --- NLP & Semantic Evaluation (CV Screening & Video Q&A) ---
+# SBERT Multilingual untuk representasi embedding & pencocokan semantik jawaban soal
 sentence-transformers
+# Scikit-learn untuk perhitungan cosine similarity
 scikit-learn
+# PyTorch untuk akselerasi neural network
+torch
+# Transformers untuk tokenizers dan model machine learning pendukung
+transformers
+huggingface-hub
 
 # --- PDF Processing & OCR ---
 PyMuPDF
 pytesseract
 Pillow
-# --- Utilities ---
+PyPDF2
+
+# --- Configuration & System Utilities ---
 pydantic[email]
 pydantic-settings
 python-dotenv
 psutil
 python-dateutil
-
-numpy<2
-mediapipe
-faster-whisper
-ultralytics
-opencv-python-headless
-moviepy>=2.0.0
-sentence-transformers
-transformers
-torch
-supabase
-cloudinary
-python-multipart
+requests

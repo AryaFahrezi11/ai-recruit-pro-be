@@ -9,14 +9,21 @@ from app.core.config import settings
 # Buat engine koneksi database
 # Development: SQLite (tanpa install apapun)
 # Production: Ganti DATABASE_URL di .env ke PostgreSQL
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,  # Print SQL queries di console (untuk debugging)
-    connect_args={
+from sqlalchemy.pool import NullPool
+
+engine_kwargs = {
+    "echo": settings.DEBUG,
+    "connect_args": {
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
     },
-)
+}
+
+if settings.DATABASE_URL.startswith("postgresql"):
+    engine_kwargs["poolclass"] = NullPool
+
+engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
+
 
 # Session factory
 async_session = async_sessionmaker(

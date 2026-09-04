@@ -34,6 +34,7 @@ from app.core.security import verify_token
 from app.models.user import PelamarProfile, PerusahaanProfile
 from app.models.job import JobPosting
 from app.models.application import CVDocument, Application
+from app.models.video_task import VideoAnalysisJob
 from app.models.analysis import CVAnalysisResult
 from app.services.cv_analysis_service import CVAnalysisService
 from app.utils.pdf_extractor import clean_text
@@ -98,6 +99,8 @@ async def get_applications(
                     "judul_posisi": app.job.judul_posisi,
                     "tipe_pekerjaan": app.job.tipe_pekerjaan,
                     "kota": app.job.kota,
+                    "video_questions_json": app.job.video_questions_json,
+                    "video_questions": json.loads(app.job.video_questions_json) if (app.job.video_questions_json and app.job.video_questions_json.strip().startswith('[')) else ([q.strip() for q in app.job.video_questions_json.split('\n') if q.strip()] if app.job.video_questions_json else []),
                 }
                 if app.job.perusahaan:
                     app_dict["job"]["perusahaan"] = {
@@ -224,6 +227,8 @@ async def get_applications(
                     "tanggal_tutup": str(app.job.tanggal_tutup) if app.job.tanggal_tutup else None,
                     "cv_threshold": float(app.job.cv_threshold) if app.job.cv_threshold else 40,
                     "interview_threshold": float(app.job.interview_threshold) if app.job.interview_threshold else 40,
+                    "video_questions_json": app.job.video_questions_json,
+                    "video_questions": safe_json(app.job.video_questions_json),
                 }
             if app.cv_analysis:
                 app_dict["analisis_cv"] = {
@@ -674,6 +679,8 @@ async def get_application(
             "tipe_pekerjaan": application.job.tipe_pekerjaan,
             "lokasi_kerja": application.job.lokasi_kerja,
             "kota": application.job.kota,
+            "video_questions_json": application.job.video_questions_json,
+            "video_questions": json.loads(application.job.video_questions_json) if (application.job.video_questions_json and application.job.video_questions_json.strip().startswith('[')) else ([q.strip() for q in application.job.video_questions_json.split('\n') if q.strip()] if application.job.video_questions_json else []),
         }
         if application.job.perusahaan:
             response["job"]["perusahaan"] = {
@@ -767,64 +774,195 @@ async def update_application_status(
     
     return {"message": f"Status berhasil diubah menjadi {payload.status}", "status": payload.status}
 
-import queue
-import threading
 import urllib.request
+import asyncio
+import os
+import time
 from fastapi import BackgroundTasks, File, UploadFile, HTTPException, Depends, status
+from app.core.database import async_session
 
-# 1. Inisialisasi Antrian Video
-video_queue = queue.Queue()
 
-def video_worker():
-    while True:
-        task = video_queue.get()
-        if task is None:
-            break
-        app_id, temp_path, pertanyaan = task
-        try:
-            proses_video_background(app_id, temp_path, pertanyaan)
-        except Exception as e:
-            print(f"[ERROR VIDEO WORKER] {e}")
-        finally:
-            video_queue.task_done()
+# Event untuk membangunkan async worker secara instan saat ada tugas baru
+worker_wake_event = asyncio.Event()
 
-# Start background worker thread
-threading.Thread(target=video_worker, daemon=True).start()
+# In-memory dictionary untuk progress aktif secara real-time
+# Menghilangkan beban query database berulang & race condition pada asyncpg saat polling progress
+ACTIVE_JOB_PROGRESS = {}
 
-def proses_video_background(application_id: str, video_url: str, pertanyaan: str):
-    temp_video_path = f"temp_videos/analyze_{application_id}.mp4"
+async def update_job(application_id: str, progress: int = None, current_step: str = None, job_status: str = None, error_message: str = None):
+    """Memperbarui status VideoAnalysisJob baik di RAM maupun di database."""
+    if application_id not in ACTIVE_JOB_PROGRESS:
+        ACTIVE_JOB_PROGRESS[application_id] = {}
+    if progress is not None:
+        ACTIVE_JOB_PROGRESS[application_id]["progress"] = progress
+    if current_step is not None:
+        ACTIVE_JOB_PROGRESS[application_id]["message"] = current_step
+    if job_status is not None:
+        ACTIVE_JOB_PROGRESS[application_id]["status"] = job_status
+    if error_message is not None:
+        ACTIVE_JOB_PROGRESS[application_id]["error"] = error_message
+
     try:
-        # 1. Download Video dari Cloudinary ke lokal sementara
-        import os
-        os.makedirs("temp_videos", exist_ok=True)
-        urllib.request.urlretrieve(video_url, temp_video_path)
+        async with async_session() as session:
+            result = await session.execute(select(VideoAnalysisJob).where(VideoAnalysisJob.application_id == application_id))
+            job = result.scalars().first()
+            if job:
+                if progress is not None:
+                    job.progress = progress
+                if current_step is not None:
+                    job.current_step = current_step
+                if job_status is not None:
+                    job.status = job_status
+                if error_message is not None:
+                    job.error_message = error_message
+                await session.commit()
+    except Exception as e:
+        print(f"[ERROR UPDATE JOB DB] {e}")
 
-        # 2. Jalankan Analisis AI
-        import json
-        hasil_ai = video_ai_service.analisa_video(temp_video_path, pertanyaan)
-        
-        # 3. Simpan Hasil ke Database via SQLAlchemy
-        import asyncio
-        from app.core.database import async_session
-        from sqlalchemy.future import select
-        
-        async def update_db():
-            async with async_session() as session:
-                result = await session.execute(select(Application).where(Application.id == application_id))
-                app_record = result.scalars().first()
-                if app_record:
-                    app_record.ai_result = hasil_ai if isinstance(hasil_ai, dict) else {"raw": str(hasil_ai)}
-                    app_record.status = "human_validation"
-                    await session.commit()
-        
-        asyncio.run(update_db())
+async def process_video_job(job_id: str, application_id: str):
+    """Menjalankan proses analisis video dengan progress tracking yang persisten."""
+    print(f"[VIDEO WORKER] Memulai analisis untuk aplikasi: {application_id}")
+    temp_video_path = f"temp_videos/analyze_{application_id}.mp4"
+
+    try:
+        # 1. Ambil URL video dan pertanyaan lowongan dari database
+        async with async_session() as session:
+            res = await session.execute(
+                select(Application)
+                .options(selectinload(Application.job))
+                .where(Application.id == application_id)
+            )
+            app_record = res.scalars().first()
+            if not app_record or not app_record.video_url:
+                await update_job(application_id, job_status="failed", error_message="Video URL tidak ditemukan", current_step="Gagal: Video tidak ditemukan")
+                return
+            video_url = app_record.video_url
+
+            pertanyaan_list = []
+            if app_record.job and app_record.job.video_questions_json:
+                try:
+                    parsed_q = json.loads(app_record.job.video_questions_json)
+                    if isinstance(parsed_q, list):
+                        pertanyaan_list = [str(q).strip() for q in parsed_q if str(q).strip()]
+                except Exception:
+                    pertanyaan_list = [q.strip() for q in app_record.job.video_questions_json.split('\n') if q.strip()]
+
+            if pertanyaan_list:
+                pertanyaan_perusahaan = "\n".join(pertanyaan_list)
+            else:
+                pertanyaan_perusahaan = "Ceritakan tentang diri Anda, latar belakang pengalaman, dan keahlian utama yang relevan."
+
+        # 2. Update status: Downloading video
+        await update_job(application_id, progress=5, job_status="downloading", current_step="Mengunduh video wawancara dari Cloudinary...")
+        os.makedirs("temp_videos", exist_ok=True)
+        await asyncio.to_thread(urllib.request.urlretrieve, video_url, temp_video_path)
+
+        # 3. Callback untuk melacak progress AI visual & suara langsung di RAM (thread-safe, O(1), no DB collision)
+        def progress_cb(pct: int, msg: str):
+            if application_id in ACTIVE_JOB_PROGRESS:
+                ACTIVE_JOB_PROGRESS[application_id]["progress"] = pct
+                ACTIVE_JOB_PROGRESS[application_id]["message"] = msg
+                ACTIVE_JOB_PROGRESS[application_id]["status"] = "processing"
+
+        # 4. Jalankan analisis AI nyata di background thread (non-blocking untuk event loop)
+        await update_job(application_id, progress=10, job_status="processing", current_step="Memulai analisis AI visual & suara...")
+        hasil_ai = await asyncio.to_thread(
+            video_ai_service.analisa_video,
+            temp_video_path,
+            pertanyaan_perusahaan,
+            pertanyaan_list=pertanyaan_list,
+            progress_callback=progress_cb
+        )
+
+        # 5. Cek validitas hasil
+        if isinstance(hasil_ai, dict) and hasil_ai.get("status") == "INVALID":
+            pesan_error = hasil_ai.get("pesan", "Video tidak memenuhi standar analisis AI.")
+            await update_job(application_id, job_status="failed", error_message=pesan_error, current_step=f"Gagal: {pesan_error}")
+            return
+
+        # 6. Simpan Hasil Akhir ke Database & Ubah Status Lamaran ke human_validation
+        await update_job(application_id, progress=98, current_step="Menyimpan hasil evaluasi AI...")
+
+        async with async_session() as session:
+            res = await session.execute(select(Application).where(Application.id == application_id))
+            app_to_update = res.scalars().first()
+            if app_to_update:
+                app_to_update.ai_result = hasil_ai if isinstance(hasil_ai, dict) else {"raw": str(hasil_ai)}
+                app_to_update.status = "human_validation"
+                await session.commit()
+
+        # 7. Tandai Job Selesai (100%)
+        await update_job(application_id, progress=100, job_status="completed", current_step="Analisis video AI selesai!")
+        print(f"[VIDEO WORKER] Selesai memproses aplikasi: {application_id}")
 
     except Exception as e:
-        print(f"[ERROR BACKGROUND TASK] {e}")
+        print(f"[ERROR VIDEO WORKER PROCESS] {e}")
+        await update_job(application_id, job_status="failed", error_message=str(e), current_step=f"Terjadi kesalahan: {str(e)}")
     finally:
-        # 4. Hapus file sementara
         if os.path.exists(temp_video_path):
-            os.remove(temp_video_path)
+            try:
+                os.remove(temp_video_path)
+            except:
+                pass
+        # Tunggu beberapa detik sebelum membersihkan cache agar frontend sempat menangkap progress 100%
+        await asyncio.sleep(6.0)
+        ACTIVE_JOB_PROGRESS.pop(application_id, None)
+
+async def persistent_video_worker():
+    """Worker loop asinkron yang mengambil antrean langsung dari database."""
+    print("[INFO] Persistent Video Worker telah aktif (Async Loop).")
+    while True:
+        try:
+            # Query job berikutnya yang berstatus queued atau processing (recovery)
+            next_job_info = None
+            async with async_session() as session:
+                result = await session.execute(
+                    select(VideoAnalysisJob)
+                    .where(VideoAnalysisJob.status.in_(["queued", "processing"]))
+                    .order_by(VideoAnalysisJob.created_at.asc())
+                )
+                job = result.scalars().first()
+                if job:
+                    next_job_info = (job.id, job.application_id)
+                else:
+                    # Cek jika ada lamaran dengan status 'video_analysis' yang belum memiliki record job
+                    missing_res = await session.execute(
+                        select(Application)
+                        .outerjoin(VideoAnalysisJob, Application.id == VideoAnalysisJob.application_id)
+                        .where(
+                            Application.status == "video_analysis",
+                            Application.video_url.isnot(None),
+                            VideoAnalysisJob.id.is_(None)
+                        )
+                    )
+                    missing_app = missing_res.scalars().first()
+                    if missing_app:
+                        new_job = VideoAnalysisJob(
+                            application_id=missing_app.id,
+                            status="queued",
+                            progress=0,
+                            current_step="Menunggu antrean pemrosesan AI...",
+                        )
+                        session.add(new_job)
+                        await session.commit()
+                        next_job_info = (new_job.id, new_job.application_id)
+
+            if next_job_info:
+                job_id, app_id = next_job_info
+                await process_video_job(job_id, app_id)
+            else:
+                # Tunggu sinyal job baru atau timeout 3 detik
+                try:
+                    await asyncio.wait_for(worker_wake_event.wait(), timeout=3.0)
+                    worker_wake_event.clear()
+                except asyncio.TimeoutError:
+                    pass
+        except asyncio.CancelledError:
+            print("[INFO] Persistent Video Worker dihentikan.")
+            break
+        except Exception as e:
+            print(f"[ERROR PERSISTENT WORKER LOOP] {e}")
+            await asyncio.sleep(2.0)
 
 @router.post("/{application_id}/upload-video")
 async def upload_interview_video(
@@ -835,7 +973,6 @@ async def upload_interview_video(
     if not video.filename.endswith(".mp4"):
         raise HTTPException(status_code=400, detail="Hanya format .mp4 yang diizinkan.")
 
-    # Cek apakah aplikasi sudah memiliki video (Mencegah unggah lebih dari sekali)
     try:
         result = await db.execute(select(Application).where(Application.id == application_id))
         app_data = result.scalars().first()
@@ -848,7 +985,6 @@ async def upload_interview_video(
         print(f"Error checking application data: {e}")
 
     temp_dir = "temp_videos"
-    import os
     os.makedirs(temp_dir, exist_ok=True)
     temp_path = os.path.join(temp_dir, video.filename)
 
@@ -856,7 +992,6 @@ async def upload_interview_video(
     with open(temp_path, "wb") as buffer:
         shutil.copyfileobj(video.file, buffer)
 
-    # Langsung upload ke Cloudinary
     try:
         import cloudinary.uploader
         upload_result = cloudinary.uploader.upload(
@@ -871,14 +1006,32 @@ async def upload_interview_video(
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
-    # Update database via SQLAlchemy
     try:
         result = await db.execute(select(Application).where(Application.id == application_id))
         app_record = result.scalars().first()
         if app_record:
             app_record.status = "video_analysis"
             app_record.video_url = video_url
+
+            # Otomatis daftarkan ke antrean pemrosesan AI persisten
+            job_result = await db.execute(select(VideoAnalysisJob).where(VideoAnalysisJob.application_id == application_id))
+            existing_job = job_result.scalars().first()
+            if existing_job:
+                existing_job.status = "queued"
+                existing_job.progress = 0
+                existing_job.current_step = "Menunggu antrean pemrosesan AI..."
+                existing_job.error_message = None
+            else:
+                new_job = VideoAnalysisJob(
+                    application_id=application_id,
+                    status="queued",
+                    progress=0,
+                    current_step="Menunggu antrean pemrosesan AI...",
+                )
+                db.add(new_job)
+
             await db.commit()
+            worker_wake_event.set()
     except Exception as e:
         print(f"Gagal update status via SQLAlchemy: {e}")
 
@@ -899,10 +1052,84 @@ async def analyze_interview_video(
     if not app_data or not app_data.video_url:
         raise HTTPException(status_code=400, detail="Video tidak ditemukan untuk kandidat ini.")
     
-    video_url = app_data.video_url
-    pertanyaan_perusahaan = "Ceritakan tentang pengalaman kerja dan kelebihan Anda"
+    # Masukkan atau perbarui antrean persisten di database
+    job_result = await db.execute(select(VideoAnalysisJob).where(VideoAnalysisJob.application_id == application_id))
+    existing_job = job_result.scalars().first()
     
-    # Masukkan ke dalam antrean AI
-    video_queue.put((application_id, video_url, pertanyaan_perusahaan))
-    
-    return {"status": "success", "message": "Proses analisis AI video dimasukkan ke antrean."}
+    if existing_job:
+        existing_job.status = "queued"
+        existing_job.progress = 0
+        existing_job.current_step = "Menunggu antrean pemrosesan AI..."
+        existing_job.error_message = None
+    else:
+        new_job = VideoAnalysisJob(
+            application_id=application_id,
+            status="queued",
+            progress=0,
+            current_step="Menunggu antrean pemrosesan AI...",
+        )
+        db.add(new_job)
+
+    # Pastikan status lamaran adalah video_analysis
+    app_data.status = "video_analysis"
+    await db.commit()
+
+    # Bangunkan worker
+    worker_wake_event.set()
+
+    return {"status": "success", "message": "Proses analisis AI video berhasil dimasukkan ke antrean persisten."}
+
+@router.get("/{application_id}/video-progress")
+async def get_video_analysis_progress(
+    application_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint khusus untuk memantau progress nyata pemrosesan video AI kandidat.
+    """
+    # 1. Cek in-memory progress terlebih dahulu (jika sedang aktif diproses)
+    if application_id in ACTIVE_JOB_PROGRESS:
+        cached = ACTIVE_JOB_PROGRESS[application_id]
+        return {
+            "application_id": application_id,
+            "status": cached.get("status", "processing"),
+            "progress": cached.get("progress", 0),
+            "message": cached.get("message", "Memproses video..."),
+            "error": cached.get("error"),
+            "updated_at": None
+        }
+
+    # 2. Jika tidak ada di cache aktif, ambil dari database
+    result = await db.execute(select(VideoAnalysisJob).where(VideoAnalysisJob.application_id == application_id))
+    job = result.scalars().first()
+
+    if job:
+        return {
+            "application_id": application_id,
+            "status": job.status,
+            "progress": job.progress,
+            "message": job.current_step,
+            "error": job.error_message,
+            "updated_at": str(job.updated_at) if job.updated_at else None
+        }
+
+    # Jika job belum dibuat di tabel, periksa apakah lamaran sudah selesai sebelumnya
+    app_result = await db.execute(select(Application).where(Application.id == application_id))
+    app_record = app_result.scalars().first()
+
+    if app_record and app_record.status == "human_validation":
+        return {
+            "application_id": application_id,
+            "status": "completed",
+            "progress": 100,
+            "message": "Analisis AI selesai",
+            "error": None
+        }
+
+    return {
+        "application_id": application_id,
+        "status": "idle",
+        "progress": 0,
+        "message": "Belum ada analisis video yang berjalan",
+        "error": None
+    }

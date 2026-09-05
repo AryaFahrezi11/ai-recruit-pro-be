@@ -27,9 +27,9 @@ def verify_admin(current_user: dict = Depends(verify_token)):
 
 
 @router.get("/users")
-async def get_users(role: Optional[str] = None, current_user: dict = Depends(verify_admin), db: AsyncSession = Depends(get_db)):
+async def get_users(role: Optional[str] = None, search: Optional[str] = None, current_user: dict = Depends(verify_admin), db: AsyncSession = Depends(get_db)):
     admin_service = AdminService(db)
-    return await admin_service.get_all_users(role)
+    return await admin_service.get_all_users(role, search)
 
 @router.get("/users/{user_id}/detail")
 async def get_user_detail(user_id: str, current_user: dict = Depends(verify_admin), db: AsyncSession = Depends(get_db)):

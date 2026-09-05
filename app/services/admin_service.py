@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 from typing import List, Optional
 
 from app.models.user import User, PerusahaanProfile, PelamarProfile, KampusProfile
+from app.models.application import CVDocument
 from app.core.security import hash_password
 from app.schemas.admin import AdminUserCreateRequest, AdminUserUpdateRequest
 
@@ -17,9 +18,9 @@ class AdminService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_all_users(self, role: Optional[str] = None):
-        """Mendapatkan daftar semua pengguna dengan filter role opsional"""
-        query = select(User)
+    async def get_all_users(self, role: Optional[str] = None, search: Optional[str] = None):
+        """Mendapatkan daftar semua pengguna dengan filter role opsional dan pencarian"""
+        query = select(User).order_by(User.created_at.desc())
         if role:
             query = query.where(User.role == role)
         
@@ -27,25 +28,56 @@ class AdminService:
         users = result.scalars().all()
         
         users_data = []
+        search_lower = search.strip().lower() if search else None
+        
         for user in users:
             # Dapatkan profil spesifik berdasarkan role
             profile_name = "-"
+            verification_status = None
+            is_verified = False
+            rejection_reason = None
             
             if user.role == "perusahaan":
                 p_result = await self.db.execute(select(PerusahaanProfile).where(PerusahaanProfile.user_id == user.id))
                 profile = p_result.scalars().first()
                 if profile:
-                    profile_name = profile.nama_perusahaan
+                    profile_name = profile.nama_perusahaan or "-"
+                    is_verified = bool(profile.is_verified)
+                    rejection_reason = profile.rejection_reason
+                    if profile.is_verified:
+                        verification_status = "VERIFIED"
+                    elif profile.status == "REJECTED":
+                        verification_status = "REJECTED"
+                    else:
+                        verification_status = "PENDING"
+                else:
+                    verification_status = "PENDING"
             elif user.role == "pelamar":
                 p_result = await self.db.execute(select(PelamarProfile).where(PelamarProfile.user_id == user.id))
                 profile = p_result.scalars().first()
                 if profile:
-                    profile_name = profile.nama_lengkap
+                    profile_name = profile.nama_lengkap or "-"
+                verification_status = "VERIFIED" if user.is_active else "UNVERIFIED"
             elif user.role == "kampus":
                 p_result = await self.db.execute(select(KampusProfile).where(KampusProfile.user_id == user.id))
                 profile = p_result.scalars().first()
                 if profile:
-                    profile_name = profile.nama_kampus
+                    profile_name = profile.nama_kampus or "-"
+                    is_verified = bool(profile.is_verified)
+                    verification_status = "VERIFIED" if profile.is_verified else "PENDING"
+                else:
+                    verification_status = "PENDING"
+            elif user.role == "admin":
+                profile_name = "Administrator"
+                verification_status = "VERIFIED"
+
+            # Filter search if provided
+            if search_lower:
+                match_email = search_lower in (user.email or "").lower()
+                match_name = search_lower in profile_name.lower()
+                match_role = search_lower in (user.role or "").lower()
+                if not (match_email or match_name or match_role):
+                    continue
 
             users_data.append({
                 "id": user.id,
@@ -54,6 +86,9 @@ class AdminService:
                 "name": profile_name,
                 "is_active": user.is_active,
                 "is_banned": user.is_banned,
+                "is_verified": is_verified,
+                "verification_status": verification_status,
+                "rejection_reason": rejection_reason,
                 "created_at": user.created_at
             })
             
@@ -73,6 +108,7 @@ class AdminService:
             profile = p_result.scalars().first()
             if profile:
                 profile_data = {
+                    "id": profile.id,
                     "nama_perusahaan": profile.nama_perusahaan,
                     "industri": profile.industri,
                     "ukuran": profile.ukuran,
@@ -81,23 +117,64 @@ class AdminService:
                     "kota": profile.kota,
                     "provinsi": profile.provinsi,
                     "website_url": profile.website_url,
+                    "logo_url": profile.logo_url,
                     "no_telepon": profile.no_telepon,
                     "tahun_berdiri": profile.tahun_berdiri,
+                    "nib_number": profile.nib_number,
+                    "nib_document_url": profile.nib_document_url,
                     "hr_name": profile.hr_name,
                     "hr_whatsapp": profile.hr_whatsapp,
-                    "is_verified": profile.is_verified
+                    "hr_position": profile.hr_position,
+                    "hr_id_card_url": profile.hr_id_card_url,
+                    "is_verified": profile.is_verified,
+                    "status": profile.status,
+                    "rejection_reason": profile.rejection_reason
                 }
         elif user.role == "pelamar":
             p_result = await self.db.execute(select(PelamarProfile).where(PelamarProfile.user_id == user.id))
             profile = p_result.scalars().first()
             if profile:
+                # Query CV Document terbaru dari pelamar
+                cv_result = await self.db.execute(
+                    select(CVDocument)
+                    .where(CVDocument.pelamar_id == profile.id)
+                    .order_by(CVDocument.uploaded_at.desc())
+                )
+                cv_docs = cv_result.scalars().all()
+                
+                cv_list = []
+                for cv in cv_docs:
+                    cv_list.append({
+                        "id": cv.id,
+                        "nama_file": cv.nama_file,
+                        "file_url": cv.file_url,
+                        "file_type": cv.file_type,
+                        "file_size_kb": cv.file_size_kb,
+                        "pendidikan_tertinggi": cv.pendidikan_tertinggi,
+                        "extracted_text": cv.extracted_text,
+                        "email": cv.email,
+                        "phone": cv.phone,
+                        "uploaded_at": cv.uploaded_at
+                    })
+                    
+                latest_cv = cv_list[0] if cv_list else None
+
                 profile_data = {
+                    "id": profile.id,
                     "nama_lengkap": profile.nama_lengkap,
+                    "judul_posisi": profile.judul_posisi,
                     "no_telepon": profile.no_telepon,
                     "alamat": profile.alamat,
                     "ringkasan_diri": profile.ringkasan_diri,
+                    "keahlian": profile.keahlian,
+                    "pengalaman_kerja": profile.pengalaman_kerja,
+                    "riwayat_pendidikan": profile.riwayat_pendidikan,
+                    "sertifikasi": profile.sertifikasi,
                     "linkedin_url": profile.linkedin_url,
-                    "portfolio_url": profile.portfolio_url
+                    "portfolio_url": profile.portfolio_url,
+                    "social_links": profile.social_links,
+                    "latest_cv": latest_cv,
+                    "cv_documents": cv_list
                 }
         elif user.role == "kampus":
             p_result = await self.db.execute(select(KampusProfile).where(KampusProfile.user_id == user.id))

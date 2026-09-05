@@ -68,6 +68,8 @@ async def get_jobs(
     lokasi_kerja: str = Query(default=None, description="Filter: onsite, remote, hybrid"),
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    status: Optional[str] = Query(default=None, description="Filter status lowongan: active, closed, draft"),
+    include_all: bool = Query(default=False, description="Tampilkan semua status (untuk admin)"),
 ):
     """Mendapatkan daftar semua lowongan kerja yang aktif."""
     query = (
@@ -77,8 +79,17 @@ async def get_jobs(
             selectinload(JobPosting.kategori),
             defer(JobPosting.jd_embedding)
         )
-        .where(JobPosting.status == "active")
+        
     )
+
+        # Filter status lowongan
+    if not include_all:
+        if status:
+            query = query.where(JobPosting.status == status)
+        else:
+            query = query.where(JobPosting.status == "active")
+    elif status:
+        query = query.where(JobPosting.status == status)
 
     # Filter pencarian
     if search:
@@ -511,6 +522,7 @@ async def update_job_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Mengubah status lowongan."""
+    is_admin = current_user.get("role") == "admin"
     service = JobService(db)
-    return await service.update_job_status(current_user["sub"], job_id, status_data.status)
+    return await service.update_job_status(current_user["sub"], job_id, status_data.status, is_admin=is_admin)
 

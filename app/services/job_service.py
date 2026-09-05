@@ -146,8 +146,16 @@ class JobService:
         await self.db.commit()
         return {"message": "Lowongan berhasil dihapus."}
 
-    async def update_job_status(self, user_id: str, job_id: str, new_status: str):
+    async def update_job_status(self, user_id: str, job_id: str, new_status: str, is_admin: bool = False):
         """Mengubah status lowongan (draft/active/closed)."""
+        if is_admin:
+            job = await self.db.get(JobPosting, job_id)
+            if not job:
+                raise HTTPException(status_code=404, detail="Lowongan tidak ditemukan.")
+            job.status = new_status
+            await self.db.commit()
+            await self.db.refresh(job)
+            return job
         result = await self.db.execute(select(PerusahaanProfile).where(PerusahaanProfile.user_id == user_id))
         perusahaan = result.scalars().first()
         if not perusahaan:

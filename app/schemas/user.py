@@ -44,6 +44,9 @@ class RegisterResponse(BaseModel):
 class VerifyOTPRequest(BaseModel):
     email: EmailStr
     otp_code: str
+
+class ResendOTPRequest(BaseModel):
+    email: EmailStr
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
@@ -55,6 +58,8 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     role: str
     user_id: str
+    has_completed_profile: bool = True
+    is_verified: bool = True
 
 
 # ============================================

@@ -112,7 +112,12 @@ async def get_applications(
                     "skor_kecocokan": float(app.cv_analysis.skor_kecocokan),
                     "kategori": app.cv_analysis.kategori,
                     "hasil": app.cv_analysis.hasil,
+                    "hybrid_details": json.loads(app.cv_analysis.detail_analisis) if app.cv_analysis.detail_analisis else None,
                 }
+            if hasattr(app, "ai_result") and app.ai_result:
+                app_dict["ai_result"] = app.ai_result
+            if hasattr(app, "video_url") and app.video_url:
+                app_dict["video_url"] = app.video_url
             data.append(app_dict)
 
         return {"message": "Daftar lamaran Anda", "total": len(data), "data": data}

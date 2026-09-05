@@ -3,7 +3,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
-
+from app.models.video_task import VideoAnalysisJob
 from app.core.database import Base
 
 
@@ -53,3 +53,4 @@ class Application(Base):
     job = relationship("JobPosting", back_populates="applications")
     cv_document = relationship("CVDocument", back_populates="applications")
     cv_analysis = relationship("CVAnalysisResult", back_populates="application", uselist=False, cascade="all, delete-orphan")
+    video_job = relationship("VideoAnalysisJob", back_populates="application", uselist=False, cascade="all, delete-orphan")

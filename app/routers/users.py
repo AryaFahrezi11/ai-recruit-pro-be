@@ -84,6 +84,15 @@ async def get_profile(
         }
     elif role == "perusahaan" and user.perusahaan_profile:
         c = user.perusahaan_profile
+        has_data_diri = bool(
+            c.nama_perusahaan and c.nama_perusahaan.strip() and
+            c.nib_number and c.nib_number.strip() and
+            c.hr_name and c.hr_name.strip() and
+            c.hr_whatsapp and c.hr_whatsapp.strip()
+        )
+        has_dokumen = bool(c.nib_document_url and c.hr_id_card_url)
+        has_completed_profile = has_data_diri and has_dokumen
+
         response["profil"] = {
             "id": c.id,
             "nama_perusahaan": c.nama_perusahaan,
@@ -98,9 +107,13 @@ async def get_profile(
             "no_telepon": c.no_telepon,
             "tahun_berdiri": c.tahun_berdiri,
             "nib_number": c.nib_number,
+            "nib_document_url": c.nib_document_url,
             "hr_name": c.hr_name,
             "hr_whatsapp": c.hr_whatsapp,
             "hr_position": c.hr_position,
+            "hr_id_card_url": c.hr_id_card_url,
+            "is_verified": c.is_verified,
+            "has_completed_profile": has_completed_profile,
         }
     elif role == "kampus" and user.kampus_profile:
         k = user.kampus_profile

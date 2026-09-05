@@ -1,10 +1,10 @@
 """
-🛣️ Auth Router
-Endpoint: POST /api/auth/register, POST /api/auth/login
+🔐 Auth Router
+Endpoint: POST /api/auth/register, POST /api/auth/verify-otp, POST /api/auth/resend-otp, POST /api/auth/login
 """
 from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.user import RegisterRequest, LoginRequest, TokenResponse, RegisterResponse, VerifyOTPRequest
+from app.schemas.user import RegisterRequest, LoginRequest, TokenResponse, RegisterResponse, VerifyOTPRequest, ResendOTPRequest
 from app.core.database import get_db
 from app.services.auth_service import AuthService
 
@@ -29,10 +29,19 @@ async def verify_otp(req: VerifyOTPRequest, db: AsyncSession = Depends(get_db)):
     return await auth_service.verify_otp(email=req.email, otp_code=req.otp_code)
 
 
+@router.post("/resend-otp", response_model=RegisterResponse)
+async def resend_otp(req: ResendOTPRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """
+    Kirim ulang kode OTP untuk user yang belum aktif.
+    """
+    auth_service = AuthService(db)
+    return await auth_service.resend_otp(email=req.email, background_tasks=background_tasks)
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     """
-    Login user dan dapatkan JWT token.
+    Login user dan dapatkan JWT token (wajib is_active == True).
     """
     auth_service = AuthService(db)
     return await auth_service.login(email=req.email, password=req.password, expected_role=req.role)

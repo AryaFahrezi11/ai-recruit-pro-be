@@ -229,7 +229,8 @@ class VideoAIService:
                 iris_shift = abs(left_iris.x - prev_iris_left) + abs(right_iris.x - prev_iris_right) if prev_iris_left else 0.0
                 
                 prev_iris_left, prev_iris_right = left_iris.x, right_iris.x
-                if dev_left < 0.003 and dev_right < 0.003 and iris_shift < 0.002:
+                # Memperbesar nilai toleransi threshold agar deteksi tidak terlalu kaku (strict)
+                if dev_left < 0.02 and dev_right < 0.02 and iris_shift < 0.03:
                     kontak_mata_fokus_counter += 1
 
             # 2. Deteksi Tubuh

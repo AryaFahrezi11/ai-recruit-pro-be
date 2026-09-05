@@ -125,6 +125,8 @@ class PerusahaanSettings(Base):
     email_hire_body = Column(Text, default="Halo {{candidate_name}}, Selamat! Kami dengan senang hati menawarkan Anda posisi {{job_title}} di {{company_name}}.")
     email_reject_subject = Column(String, default="[AI Recruit Pro] Update Status Lamaran: {{job_title}}")
     email_reject_body = Column(Text, default="Halo {{candidate_name}}, Terima kasih atas ketertarikan Anda pada posisi {{job_title}} di {{company_name}}. Sayangnya, saat ini kami memutuskan untuk melanjutkan dengan kandidat lain yang lebih sesuai.")
+    email_interview_user_subject = Column(String, default="[AI Recruit Pro] Undangan Wawancara Lanjutan - {{job_title}} di {{company_name}}")
+    email_interview_user_body = Column(Text, default="Halo {{candidate_name}},\n\nSelamat! Berdasarkan hasil evaluasi tahapan sebelumnya, kami ingin mengundang Anda untuk mengikuti Wawancara Lanjutan pada:\n\nJadwal: {{jadwal_wawancara}}\nLokasi / Link: {{lokasi_atau_link}}\n\nCatatan Tambahan:\n{{catatan_hr}}\n\nMohon konfirmasi kehadiran Anda dengan membalas email ini.\n\nSalam sukses,\nTim HR {{company_name}}")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

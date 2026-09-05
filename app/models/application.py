@@ -45,6 +45,8 @@ class Application(Base):
     catatan_pelamar = Column(Text)
     video_url = Column(String(500), nullable=True)
     ai_result = Column(JSONB, nullable=True)
+    catatan_perusahaan = Column(Text, nullable=True)
+    interview_details = Column(JSONB, nullable=True)
     applied_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

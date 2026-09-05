@@ -56,6 +56,8 @@ class PerusahaanService:
                 "email_hire_body": settings.email_hire_body,
                 "email_reject_subject": settings.email_reject_subject,
                 "email_reject_body": settings.email_reject_body,
+                "email_interview_user_subject": settings.email_interview_user_subject,
+                "email_interview_user_body": settings.email_interview_user_body,
             }
         }
 
@@ -97,6 +99,8 @@ class PerusahaanService:
         if req.email_hire_body is not None: settings.email_hire_body = req.email_hire_body
         if req.email_reject_subject is not None: settings.email_reject_subject = req.email_reject_subject
         if req.email_reject_body is not None: settings.email_reject_body = req.email_reject_body
+        if req.email_interview_user_subject is not None: settings.email_interview_user_subject = req.email_interview_user_subject
+        if req.email_interview_user_body is not None: settings.email_interview_user_body = req.email_interview_user_body
 
         await self.db.commit()
         return await self.get_settings(user_id)

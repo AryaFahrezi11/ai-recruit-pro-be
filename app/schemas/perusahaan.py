@@ -30,3 +30,5 @@ class PerusahaanSettingsUpdate(BaseModel):
     email_hire_body: Optional[str] = None
     email_reject_subject: Optional[str] = None
     email_reject_body: Optional[str] = None
+    email_interview_user_subject: Optional[str] = None
+    email_interview_user_body: Optional[str] = None

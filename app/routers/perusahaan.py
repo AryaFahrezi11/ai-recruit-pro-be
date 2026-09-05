@@ -68,3 +68,26 @@ async def get_company_profile(company_id: str, db: AsyncSession = Depends(get_db
     """Mendapatkan profil publik perusahaan beserta loker aktifnya."""
     service = PerusahaanService(db)
     return await service.get_company_profile(company_id)
+
+
+from fastapi import Body
+from app.services.email_service import send_rendered_email
+
+@router.post("/settings/test-email")
+async def test_perusahaan_email(
+    payload: dict = Body(...),
+    current_user: dict = Depends(verify_perusahaan),
+    db: AsyncSession = Depends(get_db)
+):
+    recipient = payload.get("recipient", "").strip()
+    subject = payload.get("subject", "Uji Coba Email Perusahaan").strip()
+    body = payload.get("body", "Halo, ini adalah email uji coba dari template pesan perusahaan.").strip()
+    
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Alamat email penerima wajib diisi")
+        
+    success = await send_rendered_email(db, recipient=recipient, subject=subject, body=body)
+    if success:
+        return {"status": "success", "message": f"Email uji coba berhasil dikirim ke {recipient}"}
+    else:
+        return {"status": "warning", "message": "Konfigurasi SMTP belum aktif atau pengiriman gagal. Silakan periksa pengaturan SMTP admin."}

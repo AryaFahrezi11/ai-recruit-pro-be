@@ -1,3 +1,4 @@
+from typing import Optional, Dict, Any
 """
 🛣️ Applications Router
 Endpoint: /api/applications
@@ -91,6 +92,8 @@ async def get_applications(
                 "id": app.id,
                 "status": app.status,
                 "catatan_pelamar": app.catatan_pelamar,
+                "catatan_perusahaan": getattr(app, "catatan_perusahaan", None),
+                "interview_details": getattr(app, "interview_details", None),
                 "applied_at": str(app.applied_at) if app.applied_at else None,
             }
             if app.job:
@@ -164,6 +167,8 @@ async def get_applications(
                 "id": app.id,
                 "status": app.status,
                 "catatan_pelamar": app.catatan_pelamar,
+                "catatan_perusahaan": getattr(app, "catatan_perusahaan", None),
+                "interview_details": getattr(app, "interview_details", None),
                 "applied_at": str(app.applied_at) if app.applied_at else None,
             }
             if app.pelamar:
@@ -746,6 +751,8 @@ async def get_application(
 
 class ApplicationStatusUpdate(BaseModel):
     status: str
+    catatan_perusahaan: Optional[str] = None
+    interview_details: Optional[dict] = None
 
 @router.patch("/{application_id}/status", status_code=status.HTTP_200_OK)
 async def update_application_status(
@@ -755,29 +762,125 @@ async def update_application_status(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Mengubah status lamaran (misalnya dari cv_screening ke virtual_interview atau ditolak).
+    Mengubah status lamaran (misalnya dari cv_screening ke virtual_interview, interview_lanjutan, hired, atau rejected).
     Hanya bisa dilakukan oleh perusahaan/admin.
     """
     role = current_user.get("role")
     if role not in ["perusahaan", "admin"]:
         raise HTTPException(status_code=403, detail="Hanya perusahaan/admin yang dapat mengubah status")
         
-    result = await db.execute(select(Application).where(Application.id == application_id).options(joinedload(Application.job)))
+    result = await db.execute(
+        select(Application)
+        .where(Application.id == application_id)
+        .options(
+            joinedload(Application.job),
+            joinedload(Application.pelamar).joinedload(PelamarProfile.user)
+        )
+    )
     app_record = result.scalars().first()
     
     if not app_record:
         raise HTTPException(status_code=404, detail="Lamaran tidak ditemukan")
         
+    perusahaan = None
     if role == "perusahaan":
         perusahaan_result = await db.execute(select(PerusahaanProfile).where(PerusahaanProfile.user_id == current_user.get("sub")))
         perusahaan = perusahaan_result.scalars().first()
         if not perusahaan or app_record.job.perusahaan_id != perusahaan.id:
             raise HTTPException(status_code=403, detail="Anda tidak memiliki akses ke lamaran ini")
+    else:
+        perusahaan_result = await db.execute(select(PerusahaanProfile).where(PerusahaanProfile.id == app_record.job.perusahaan_id))
+        perusahaan = perusahaan_result.scalars().first()
 
+    # Perbarui data lamaran
     app_record.status = payload.status
+    if payload.catatan_perusahaan is not None:
+        app_record.catatan_perusahaan = payload.catatan_perusahaan
+    if payload.interview_details is not None:
+        app_record.interview_details = payload.interview_details
+        
     await db.commit()
     
-    return {"message": f"Status berhasil diubah menjadi {payload.status}", "status": payload.status}
+    # Pengiriman email notifikasi otomatis ke pelamar berdasarkan status baru
+    try:
+        candidate_email = None
+        candidate_name = "Kandidat"
+        if app_record.pelamar and app_record.pelamar.user:
+            candidate_email = app_record.pelamar.user.email
+            candidate_name = app_record.pelamar.nama_lengkap or app_record.pelamar.user.nama_lengkap or candidate_email.split("@")[0]
+            
+        if candidate_email and perusahaan:
+            from app.models.user import PerusahaanSettings
+            from app.services.email_service import send_rendered_email
+            
+            # Ambil template perusahaan
+            comp_settings_res = await db.execute(select(PerusahaanSettings).where(PerusahaanSettings.user_id == perusahaan.user_id))
+            comp_settings = comp_settings_res.scalars().first()
+            
+            company_name = perusahaan.nama_perusahaan or "Perusahaan"
+            job_title = app_record.job.judul_posisi or "Posisi"
+            
+            subj_tpl = ""
+            body_tpl = ""
+            
+            if payload.status == "virtual_interview":
+                subj_tpl = getattr(comp_settings, 'email_invitation_subject', None) or "[AI Recruit Pro] Undangan Wawancara Video Virtual - {{job_title}}"
+                body_tpl = getattr(comp_settings, 'email_invitation_body', None) or "Halo {{candidate_name}}, Selamat! CV Anda telah lolos tahap seleksi awal (PO-FIT). Silakan masuk ke portal status lamaran Anda untuk merekam wawancara video virtual: {{interview_link}}"
+            elif payload.status == "interview_lanjutan":
+                subj_tpl = getattr(comp_settings, 'email_interview_user_subject', None) or "[AI Recruit Pro] Undangan Wawancara Lanjutan - {{job_title}} di {{company_name}}"
+                body_tpl = getattr(comp_settings, 'email_interview_user_body', None) or "Halo {{candidate_name}},\n\nSelamat! Berdasarkan hasil evaluasi tahapan sebelumnya, kami ingin mengundang Anda untuk mengikuti Wawancara Lanjutan pada:\n\nJadwal: {{jadwal_wawancara}}\nLokasi / Link: {{lokasi_atau_link}}\n\nCatatan Tambahan:\n{{catatan_hr}}\n\nMohon konfirmasi kehadiran Anda dengan membalas email ini.\n\nSalam sukses,\nTim HR {{company_name}}"
+            elif payload.status == "hired":
+                subj_tpl = getattr(comp_settings, 'email_hire_subject', None) or "[AI Recruit Pro] Selamat! Anda Diterima di {{company_name}}"
+                body_tpl = getattr(comp_settings, 'email_hire_body', None) or "Halo {{candidate_name}}, Selamat! Kami dengan senang hati menawarkan Anda posisi {{job_title}} di {{company_name}}."
+            elif payload.status == "rejected":
+                subj_tpl = getattr(comp_settings, 'email_reject_subject', None) or "[AI Recruit Pro] Update Status Lamaran: {{job_title}}"
+                body_tpl = getattr(comp_settings, 'email_reject_body', None) or "Halo {{candidate_name}}, Terima kasih atas ketertarikan Anda pada posisi {{job_title}} di {{company_name}}. Sayangnya, saat ini kami memutuskan untuk melanjutkan dengan kandidat lain yang lebih sesuai.\n\nCatatan: {{alasan_penolakan}}"
+
+            if subj_tpl and body_tpl:
+                # Format variabel
+                intv_det = payload.interview_details or app_record.interview_details or {}
+                schedule_str = f"{intv_det.get('tanggal', '')} {intv_det.get('waktu', '')}".strip() or "Sesuai kesepakatan"
+                location_str = intv_det.get('lokasi_atau_link', '') or "Online / Kantor Perusahaan"
+                notes_str = intv_det.get('catatan', payload.catatan_perusahaan or '-')
+                rejection_reason = payload.catatan_perusahaan or "Kualifikasi profil belum sesuai dengan kriteria yang dibutuhkan saat ini."
+                
+                replace_dict = {
+                    "{{candidate_name}}": candidate_name,
+                    "{nama_pelamar}": candidate_name,
+                    "{{job_title}}": job_title,
+                    "{judul_posisi}": job_title,
+                    "{{company_name}}": company_name,
+                    "{nama_perusahaan}": company_name,
+                    "{{interview_link}}": "http://localhost:3000/applicant/status",
+                    "{link_interview}": "http://localhost:3000/applicant/status",
+                    "{{jadwal_wawancara}}": schedule_str,
+                    "{jadwal_wawancara}": schedule_str,
+                    "{{lokasi_atau_link}}": location_str,
+                    "{lokasi_atau_link}": location_str,
+                    "{{catatan_hr}}": notes_str,
+                    "{catatan_hr}": notes_str,
+                    "{{alasan_penolakan}}": rejection_reason,
+                    "{alasan_penolakan}": rejection_reason,
+                    "{{catatan_perusahaan}}": payload.catatan_perusahaan or "",
+                    "{catatan_perusahaan}": payload.catatan_perusahaan or "",
+                }
+                
+                final_subj = subj_tpl
+                final_body = body_tpl
+                for k, v in replace_dict.items():
+                    final_subj = final_subj.replace(k, str(v))
+                    final_body = final_body.replace(k, str(v))
+                    
+                await send_rendered_email(db, recipient=candidate_email, subject=final_subj, body=final_body)
+    except Exception as email_err:
+        print(f"[Applications] Gagal mengirim notifikasi email ke pelamar: {email_err}")
+
+    return {
+        "message": f"Status berhasil diubah menjadi {payload.status}",
+        "status": payload.status,
+        "catatan_perusahaan": app_record.catatan_perusahaan,
+        "interview_details": app_record.interview_details
+    }
 
 import urllib.request
 import asyncio

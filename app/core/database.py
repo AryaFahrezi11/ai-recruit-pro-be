@@ -12,7 +12,7 @@ from app.core.config import settings
 from sqlalchemy.pool import NullPool
 
 engine_kwargs = {
-    "echo": settings.DEBUG,
+    "echo": False,
     "connect_args": {
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,

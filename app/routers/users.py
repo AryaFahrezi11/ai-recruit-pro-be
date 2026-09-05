@@ -7,6 +7,7 @@ from app.utils.pdf_extractor import clean_text
 from fastapi import APIRouter, Body, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 from typing import Optional
 import os
@@ -242,13 +243,43 @@ async def update_profile(
 
         if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
             form = await request.form()
-            if "nama_perusahaan" in form: profile.nama_perusahaan = str(form["nama_perusahaan"])
+            if "nama_perusahaan" in form and form["nama_perusahaan"]:
+                nama_val = str(form["nama_perusahaan"]).strip()
+                if nama_val:
+                    dup_name = await db.execute(
+                        select(PerusahaanProfile).where(
+                            func.lower(PerusahaanProfile.nama_perusahaan) == nama_val.lower(),
+                            PerusahaanProfile.id != profile.id
+                        )
+                    )
+                    if dup_name.scalars().first():
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Perusahaan '{nama_val}' sudah terdaftar. 1 perusahaan hanya diperbolehkan memiliki 1 akun perwakilan resmi."
+                        )
+                    profile.nama_perusahaan = nama_val
+
             if "industri" in form: profile.industri = str(form["industri"])
             if "ukuran" in form: profile.ukuran = str(form["ukuran"])
             if "website_url" in form: profile.website_url = str(form["website_url"])
             if "alamat" in form: profile.alamat = str(form["alamat"])
             if "no_telepon" in form: profile.no_telepon = str(form["no_telepon"])
-            if "nib_number" in form: profile.nib_number = str(form["nib_number"])
+
+            if "nib_number" in form and form["nib_number"]:
+                nib_val = str(form["nib_number"]).strip()
+                if nib_val:
+                    dup_nib = await db.execute(
+                        select(PerusahaanProfile).where(
+                            PerusahaanProfile.nib_number == nib_val,
+                            PerusahaanProfile.id != profile.id
+                        )
+                    )
+                    if dup_nib.scalars().first():
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Nomor NIB/NPWP '{nib_val}' sudah terdaftar pada akun perusahaan lain."
+                        )
+                    profile.nib_number = nib_val
             if "hr_name" in form: profile.hr_name = str(form["hr_name"])
             if "hr_whatsapp" in form: profile.hr_whatsapp = str(form["hr_whatsapp"])
             if "hr_position" in form: profile.hr_position = str(form["hr_position"])

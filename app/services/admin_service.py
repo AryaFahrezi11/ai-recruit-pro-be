@@ -224,9 +224,21 @@ class AdminService:
         await self.db.commit()
         return {"status": "success", "message": f"User {'banned' if status else 'unbanned'} successfully"}
 
-    async def get_pending_companies(self):
+    async def get_pending_companies(self, search: Optional[str] = None):
         """Mendapatkan daftar perusahaan yang belum diverifikasi"""
         query = select(PerusahaanProfile).where(PerusahaanProfile.is_verified == False)
+        if search and search.strip():
+            s = "%" + search.strip() + "%"
+            query = query.where(
+                or_(
+                    PerusahaanProfile.nama_perusahaan.ilike(s),
+                    PerusahaanProfile.nib_number.ilike(s),
+                    PerusahaanProfile.hr_name.ilike(s),
+                    PerusahaanProfile.hr_whatsapp.ilike(s),
+                    PerusahaanProfile.kota.ilike(s),
+                    PerusahaanProfile.industri.ilike(s)
+                )
+            )
         result = await self.db.execute(query)
         companies = result.scalars().all()
         return companies

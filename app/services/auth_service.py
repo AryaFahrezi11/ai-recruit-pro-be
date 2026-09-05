@@ -122,8 +122,26 @@ class AuthService:
 
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email sudah terdaftar. Silakan langsung masuk."
+                detail="Alamat email ini sudah terdaftar sebagai akun perusahaan. Silakan langsung masuk (login)."
             )
+
+        # 1.1 Khusus Perusahaan: Cek keunikan domain email perusahaan (1 Perusahaan = 1 Perwakilan Terdaftar)
+        if role == "perusahaan":
+            email_domain = email.split("@")[-1].lower() if "@" in email else ""
+            # Kecualikan domain testing (.ac.id) agar leluasa untuk keperluan pengujian
+            is_testing_domain = email_domain.endswith(".ac.id") or email_domain == "ac.id"
+            if email_domain and not is_testing_domain:
+                domain_query = select(User).where(
+                    User.role == "perusahaan",
+                    User.email.ilike(f"%@{email_domain}"),
+                    User.email != email
+                )
+                domain_existing = (await self.db.execute(domain_query)).scalars().first()
+                if domain_existing:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Perusahaan dengan domain email @{email_domain} sudah terdaftar oleh perwakilan lain. Untuk menghindari duplikasi akun dan penipuan, 1 perusahaan hanya diperbolehkan mendaftarkan 1 akun perwakilan resmi. Silakan hubungi perwakilan perusahaan Anda atau hubungi Admin."
+                    )
 
         # 2. Hash password & Buat User baru (is_active default False)
         hashed = hash_password(password)

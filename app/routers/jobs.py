@@ -59,7 +59,7 @@ async def get_my_jobs(current_user: dict = Depends(get_current_user), db: AsyncS
     service = JobService(db)
     return await service.get_my_jobs(current_user["sub"])
 
-@router.get("/")
+@router.get("")
 async def get_jobs(
     request: Request,
     db: AsyncSession = Depends(get_db),

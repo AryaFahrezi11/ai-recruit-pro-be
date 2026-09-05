@@ -60,9 +60,13 @@ async def ban_user(user_id: str, req: BanRequest, current_user: dict = Depends(v
     return await admin_service.ban_user(user_id, req.is_banned)
 
 @router.get("/perusahaan/pending")
-async def get_pending_companies(current_user: dict = Depends(verify_admin), db: AsyncSession = Depends(get_db)):
+async def get_pending_companies(
+    search: Optional[str] = None,
+    current_user: dict = Depends(verify_admin), 
+    db: AsyncSession = Depends(get_db)
+):
     admin_service = AdminService(db)
-    return await admin_service.get_pending_companies()
+    return await admin_service.get_pending_companies(search=search)
 
 @router.put("/perusahaan/{company_id}/verify")
 async def verify_company(company_id: str, current_user: dict = Depends(verify_admin), db: AsyncSession = Depends(get_db)):

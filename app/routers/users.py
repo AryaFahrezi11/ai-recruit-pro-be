@@ -114,6 +114,8 @@ async def get_profile(
             "hr_position": c.hr_position,
             "hr_id_card_url": c.hr_id_card_url,
             "is_verified": c.is_verified,
+            "status": c.status or ("VERIFIED" if c.is_verified else "PENDING"),
+            "rejection_reason": c.rejection_reason,
             "has_completed_profile": has_completed_profile,
         }
     elif role == "kampus" and user.kampus_profile:
@@ -289,6 +291,11 @@ async def update_profile(
                 
             if "id_card_file" in form and hasattr(form["id_card_file"], "filename"):
                 profile.hr_id_card_url = save_upload(form["id_card_file"])  # type: ignore
+
+            # Reset status back to PENDING upon updating profile
+            profile.status = "PENDING"
+            profile.rejection_reason = None
+            profile.is_verified = False
         else:
             try:
                 data = await request.json()

@@ -252,5 +252,21 @@ class AdminService:
             raise HTTPException(status_code=404, detail="Perusahaan tidak ditemukan")
             
         company.is_verified = True
+        company.status = "VERIFIED"
+        company.rejection_reason = None
         await self.db.commit()
         return {"status": "success", "message": "Perusahaan berhasil diverifikasi"}
+
+    async def reject_company(self, company_id: str, reason: str):
+        """Menolak verifikasi perusahaan dan meminta kelengkapan ulang data/dokumen (step 3)"""
+        result = await self.db.execute(select(PerusahaanProfile).where(PerusahaanProfile.id == company_id))
+        company = result.scalars().first()
+        
+        if not company:
+            raise HTTPException(status_code=404, detail="Perusahaan tidak ditemukan")
+            
+        company.is_verified = False
+        company.status = "REJECTED"
+        company.rejection_reason = reason.strip() if reason else "Persyaratan dokumen belum lengkap/sesuai"
+        await self.db.commit()
+        return {"status": "success", "message": "Verifikasi perusahaan berhasil ditolak"}

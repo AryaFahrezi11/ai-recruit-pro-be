@@ -65,6 +65,8 @@ class PerusahaanProfile(Base):
     ukuran = Column(String(100))
     deskripsi = Column(Text)
     is_verified = Column(Boolean, default=False)
+    status = Column(String(50), default="PENDING")
+    rejection_reason = Column(Text, nullable=True)
     alamat = Column(Text)
     kota = Column(String(100))
     provinsi = Column(String(100))

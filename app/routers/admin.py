@@ -73,6 +73,19 @@ async def verify_company(company_id: str, current_user: dict = Depends(verify_ad
     admin_service = AdminService(db)
     return await admin_service.verify_company(company_id)
 
+class CompanyRejectRequest(BaseModel):
+    reason: str
+
+@router.put("/perusahaan/{company_id}/reject")
+async def reject_company(
+    company_id: str,
+    req: CompanyRejectRequest,
+    current_user: dict = Depends(verify_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    admin_service = AdminService(db)
+    return await admin_service.reject_company(company_id, req.reason)
+
 
 
 START_TIME = time.time()

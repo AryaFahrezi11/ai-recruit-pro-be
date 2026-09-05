@@ -20,7 +20,7 @@ from app.core.security import hash_password, verify_password, create_access_toke
 from app.models.user import User, PelamarProfile, PerusahaanProfile, KampusProfile
 
 
-def send_otp_email_sync(host: str, port: int, user: str, password: str, sender_email: str, recipient: str, otp_code: str):
+def send_otp_email_sync(host: str, port: int, user: str, password: str, sender_email: str, recipient: str, otp_code: str, custom_subject: str = None, custom_body: str = None):
     if not host or not sender_email:
         print("SMTP settings are incomplete. Skipping email.")
         return
@@ -29,9 +29,9 @@ def send_otp_email_sync(host: str, port: int, user: str, password: str, sender_e
         msg = MIMEMultipart()
         msg['From'] = sender_email
         msg['To'] = recipient
-        msg['Subject'] = "Kode OTP Anda - AI Recruit Pro"
+        msg['Subject'] = custom_subject or "Kode OTP Anda - AI Recruit Pro"
         
-        body = f"Halo,\n\nKode OTP Anda adalah: {otp_code}\n\nKode ini berlaku selama 10 menit. Jangan berikan kode ini kepada siapapun.\n\nTerima kasih,\nTim AI Recruit Pro"
+        body = custom_body or f"Halo,\n\nKode OTP Anda adalah: {otp_code}\n\nKode ini berlaku selama 10 menit. Jangan berikan kode ini kepada siapapun.\n\nTerima kasih,\nTim AI Recruit Pro"
         msg.attach(MIMEText(body, 'plain'))
         
         server = smtplib.SMTP(host, port)
@@ -54,7 +54,7 @@ class AuthService:
     async def _send_otp_email(self, email: str, otp_code: str, background_tasks: BackgroundTasks = None):
         """Helper untuk mengirim email OTP via SMTP atau mock console."""
         settings_query = await self.db.execute(select(SystemSetting).where(
-            SystemSetting.key.in_(['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from'])
+            SystemSetting.key.in_(['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from', 'email_tpl_otp_subject', 'email_tpl_otp_body'])
         ))
         settings_db = settings_query.scalars().all()
         
@@ -80,6 +80,14 @@ class AuthService:
             else:
                 smtp_config[s.key] = val
                 
+        # Template rendering
+        from app.services.email_service import DEFAULT_TEMPLATES
+        tpl_subj = smtp_config.get('email_tpl_otp_subject') or DEFAULT_TEMPLATES['email_tpl_otp_subject']
+        tpl_body = smtp_config.get('email_tpl_otp_body') or DEFAULT_TEMPLATES['email_tpl_otp_body']
+        
+        rendered_subj = tpl_subj.replace("{otp_code}", otp_code).replace("{nama_penerima}", email.split("@")[0]).replace("{kadaluarsa_menit}", "10")
+        rendered_body = tpl_body.replace("{otp_code}", otp_code).replace("{nama_penerima}", email.split("@")[0]).replace("{kadaluarsa_menit}", "10")
+
         if background_tasks and smtp_config.get('smtp_host') and smtp_config.get('smtp_from'):
             background_tasks.add_task(
                 send_otp_email_sync,
@@ -89,7 +97,9 @@ class AuthService:
                 smtp_config['smtp_pass'],
                 smtp_config['smtp_from'],
                 email,
-                otp_code
+                otp_code,
+                rendered_subj,
+                rendered_body
             )
         else:
             print("=======================================")

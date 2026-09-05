@@ -1,3 +1,4 @@
+from app.services.email_service import DEFAULT_TEMPLATES, send_rendered_email
 from sqlalchemy import select, func
 from app.models.application import CVDocument
 from app.models.analysis import CVAnalysisResult
@@ -374,7 +375,8 @@ async def get_system_settings(db: AsyncSession = Depends(get_db), current_user: 
         "smtp_port": "587",
         "smtp_user": "",
         "smtp_pass": "",
-        "smtp_from": ""
+        "smtp_from": "",
+        **DEFAULT_TEMPLATES
     }
     
     for k, v in defaults.items():
@@ -430,3 +432,23 @@ async def get_audit_logs(db: AsyncSession = Depends(get_db), current_user: dict 
             "created_at": log.created_at
         })
     return formatted_logs
+
+
+@router.post("/settings/test-email")
+async def test_email_setting(
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(verify_admin)
+):
+    recipient = payload.get("recipient", "").strip()
+    subject = payload.get("subject", "Test Email AI Recruit Pro").strip()
+    body = payload.get("body", "Halo, ini adalah email uji coba dari sistem AI Recruit Pro.").strip()
+    
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Alamat email penerima wajib diisi")
+        
+    success = await send_rendered_email(db, recipient=recipient, subject=subject, body=body)
+    if success:
+        return {"status": "success", "message": f"Email uji coba berhasil dikirim ke {recipient}"}
+    else:
+        return {"status": "warning", "message": f"Konfigurasi SMTP belum aktif atau pengiriman gagal. Silakan periksa pengaturan SMTP atau periksa log server."}

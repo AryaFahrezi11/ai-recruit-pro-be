@@ -332,6 +332,21 @@ class AdminService:
         company.status = "VERIFIED"
         company.rejection_reason = None
         await self.db.commit()
+        
+        # Kirim email notifikasi persetujuan ke perusahaan
+        try:
+            user_res = await self.db.execute(select(User).where(User.id == company.user_id))
+            company_user = user_res.scalars().first()
+            if company_user and company_user.email:
+                from app.services.email_service import send_company_approved_email
+                await send_company_approved_email(
+                    db=self.db,
+                    company_name=company.nama_perusahaan or "Perusahaan",
+                    recipient_email=company_user.email
+                )
+        except Exception as e:
+            print(f"[AdminService] Notifikasi email approve gagal: {e}")
+
         return {"status": "success", "message": "Perusahaan berhasil diverifikasi"}
 
     async def reject_company(self, company_id: str, reason: str):
@@ -346,4 +361,20 @@ class AdminService:
         company.status = "REJECTED"
         company.rejection_reason = reason.strip() if reason else "Persyaratan dokumen belum lengkap/sesuai"
         await self.db.commit()
+        
+        # Kirim email notifikasi penolakan ke perusahaan
+        try:
+            user_res = await self.db.execute(select(User).where(User.id == company.user_id))
+            company_user = user_res.scalars().first()
+            if company_user and company_user.email:
+                from app.services.email_service import send_company_rejected_email
+                await send_company_rejected_email(
+                    db=self.db,
+                    company_name=company.nama_perusahaan or "Perusahaan",
+                    recipient_email=company_user.email,
+                    reason=company.rejection_reason
+                )
+        except Exception as e:
+            print(f"[AdminService] Notifikasi email reject gagal: {e}")
+
         return {"status": "success", "message": "Verifikasi perusahaan berhasil ditolak"}

@@ -18,26 +18,73 @@ from app.models.user import PerusahaanProfile, PelamarProfile
 from app.models import JobPosting
 import re
 
-def calculate_pofit_score(job: JobPosting, user_profile: PelamarProfile) -> int:
-    """Menghitung persentase kecocokan antara lowongan dan pelamar secara sederhana."""
+def calculate_pofit_score(job: JobPosting, user_profile: Optional[PelamarProfile]) -> tuple[int, str, bool]:
+    """
+    Menghitung persentase kecocokan antara lowongan dan pelamar berdasarkan data CV asli.
+    Returns: (score, reason, has_cv)
+    """
     if not user_profile:
-        return 92 # Default score jika user belum login atau profil kosong
+        return 0, "Lengkapi profil/CV Anda untuk mendapatkan rekomendasi PO-Fit yang akurat.", False
         
-    job_text = f"{job.judul_posisi or ''} {job.deskripsi_pekerjaan or ''} {job.kualifikasi or ''} {job.pendidikan_min or ''}".lower()
-    job_words = set(re.findall(r'\w+', job_text))
-    
-    user_text = f"{user_profile.keahlian or ''} {user_profile.judul_posisi or ''} {user_profile.pengalaman_kerja or ''} {user_profile.riwayat_pendidikan or ''}".lower()
-    user_words = set(re.findall(r'\w+', user_text))
-    
-    if not job_words or not user_words:
-        return 50
-        
-    intersection = job_words.intersection(user_words)
-    base_score = 60
-    match_percentage = (len(intersection) / len(job_words)) * 100 if len(job_words) > 0 else 0
-    final_score = base_score + (match_percentage * 1.5)
-    
-    return int(min(98, max(60, final_score)))
+    user_title = (user_profile.judul_posisi or "").strip()
+    user_skills_raw = (user_profile.keahlian or "").strip()
+    user_summary = (user_profile.ringkasan_diri or "").strip()
+    user_exp = (user_profile.pengalaman_kerja or "").strip()
+
+    # Cek apakah pengguna sudah melengkapi CV / data profil
+    has_cv = bool(user_title or user_skills_raw or user_summary or user_exp)
+    if not has_cv:
+        return 0, "Lengkapi profil/CV Anda untuk melihat rekomendasi PO-Fit personal.", False
+
+    job_title = (job.judul_posisi or "").lower().strip()
+    job_desc = (job.deskripsi_pekerjaan or "").lower().strip()
+    job_req = (job.kualifikasi or "").lower().strip()
+    job_keywords = (job.ai_keywords_json or "").lower().strip()
+    job_full_text = f"{job_title} {job_desc} {job_req} {job_keywords}"
+
+    # 1. Judul Posisi / Peran Match (Bobot 45%)
+    title_score = 40
+    if user_title:
+        u_title_lower = user_title.lower()
+        if u_title_lower in job_title or job_title in u_title_lower:
+            title_score = 100
+        else:
+            u_words = [w for w in re.findall(r'\w+', u_title_lower) if len(w) > 2]
+            j_words = [w for w in re.findall(r'\w+', job_title) if len(w) > 2]
+            if u_words and j_words:
+                common = set(u_words).intersection(set(j_words))
+                if common:
+                    title_score = int(min(95, 60 + (len(common) / len(u_words)) * 35))
+
+    # 2. Keahlian (Skills) Match (Bobot 35%)
+    skills_score = 40
+    if user_skills_raw:
+        skills = [s.strip().lower() for s in re.split(r'[,;\n]+', user_skills_raw) if s.strip()]
+        if skills:
+            matched = [s for s in skills if s in job_full_text]
+            skills_score = int(min(98, 45 + (len(matched) / len(skills)) * 53))
+
+    # 3. Pengalaman & Ringkasan Diri Match (Bobot 20%)
+    exp_score = 50
+    if user_summary or user_exp:
+        profile_words = set(re.findall(r'\w+', f"{user_summary} {user_exp}".lower()))
+        common_words = profile_words.intersection(set(re.findall(r'\w+', job_full_text)))
+        if common_words:
+            exp_score = int(min(95, 50 + min(len(common_words) * 3, 45)))
+
+    final_score = int((title_score * 0.45) + (skills_score * 0.35) + (exp_score * 0.20))
+    final_score = int(min(98, max(45, final_score)))
+
+    if final_score >= 80:
+        reason = "Sangat Cocok! Posisi dan keahlian di CV Anda sangat relevan dengan lowongan ini."
+    elif final_score >= 65:
+        reason = "Cukup Cocok. Sebagian keahlian Anda sesuai dengan kualifikasi yang dicari."
+    else:
+        reason = "Kecocokan Standar. Kualifikasi Anda memenuhi persyaratan umum posisi ini."
+
+    return final_score, reason, True
+
+
 from app.models.job import JobPosting, JobCategory
 from app.schemas.job import JobPostingCreate, JobPostingResponse
 from app.services.job_service import JobService
@@ -53,25 +100,52 @@ async def get_job_categories(db: AsyncSession = Depends(get_db)):
     service = JobService(db)
     return await service.get_categories()
 
+
+@router.get("/locations")
+async def get_job_locations(db: AsyncSession = Depends(get_db)):
+    """Mendapatkan daftar lokasi lowongan yang paling sering muncul."""
+    from sqlalchemy import func
+    query = (
+        select(JobPosting.kota, func.count(JobPosting.id).label("total"))
+        .where(JobPosting.kota.isnot(None), JobPosting.kota != "", JobPosting.status == "active")
+        .group_by(JobPosting.kota)
+        .order_by(func.count(JobPosting.id).desc())
+        .limit(15)
+    )
+    result = await db.execute(query)
+    rows = result.all()
+    locations = [r[0].strip() for r in rows if r[0] and r[0].strip()]
+    if not locations:
+        locations = ["Jakarta", "Bandung", "Surabaya", "Yogyakarta", "Tangerang", "Remote"]
+    return {"locations": locations}
+
+
 @router.get("/my-jobs", response_model=List[JobPostingResponse])
 async def get_my_jobs(current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Mendapatkan daftar semua lowongan milik perusahaan yang sedang login."""
     service = JobService(db)
     return await service.get_my_jobs(current_user["sub"])
 
+
 @router.get("")
 async def get_jobs(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    search: str = Query(default=None, description="Cari berdasarkan judul posisi atau kota"),
-    tipe_pekerjaan: str = Query(default=None, description="Filter: full_time, part_time, contract, internship"),
-    lokasi_kerja: str = Query(default=None, description="Filter: onsite, remote, hybrid"),
-    limit: int = Query(default=20, ge=1, le=200),
+    search: Optional[str] = Query(default=None, description="Cari berdasarkan kata kunci"),
+    keyword: Optional[str] = Query(default=None, description="Alias kata kunci pencarian"),
+    location: Optional[str] = Query(default=None, description="Cari berdasarkan kota / lokasi"),
+    kategori_id: Optional[str] = Query(default=None, description="Filter ID kategori lowongan"),
+    tipe_pekerjaan: Optional[str] = Query(default=None, description="Filter: Full-time, Contract, Part-time, Internship, Freelance"),
+    lokasi_kerja: Optional[str] = Query(default=None, description="Filter: On-site, Remote, Hybrid"),
+    experience_level: Optional[str] = Query(default=None, description="Filter tingkat pengalaman"),
+    pendidikan_min: Optional[str] = Query(default=None, description="Filter pendidikan minimal"),
+    sort_by: Optional[str] = Query(default="rekomendasi", description="rekomendasi, terbaru, terlama"),
+    limit: int = Query(default=100, ge=1, le=300),
     offset: int = Query(default=0, ge=0),
     status: Optional[str] = Query(default=None, description="Filter status lowongan: active, closed, draft"),
     include_all: bool = Query(default=False, description="Tampilkan semua status (untuk admin)"),
 ):
-    """Mendapatkan daftar semua lowongan kerja yang aktif."""
+    """Mendapatkan daftar semua lowongan kerja yang aktif dengan filter lengkap & sortir PO-fit."""
     query = (
         select(JobPosting)
         .options(
@@ -79,10 +153,9 @@ async def get_jobs(
             selectinload(JobPosting.kategori),
             defer(JobPosting.jd_embedding)
         )
-        
     )
 
-        # Filter status lowongan
+    # Filter status lowongan
     if not include_all:
         if status:
             query = query.where(JobPosting.status == status)
@@ -91,47 +164,91 @@ async def get_jobs(
     elif status:
         query = query.where(JobPosting.status == status)
 
-    # Filter pencarian
-    if search:
+    # Filter kata kunci (search / keyword)
+    kw = keyword or search
+    if kw and kw.strip():
+        kw_clean = kw.strip()
         query = query.where(
             or_(
-                JobPosting.judul_posisi.ilike(f"%{search}%"),
-                JobPosting.kota.ilike(f"%{search}%"),
+                JobPosting.judul_posisi.ilike(f"%{kw_clean}%"),
+                JobPosting.deskripsi_pekerjaan.ilike(f"%{kw_clean}%"),
+                JobPosting.kualifikasi.ilike(f"%{kw_clean}%"),
+                JobPosting.kota.ilike(f"%{kw_clean}%"),
             )
         )
 
-    if tipe_pekerjaan:
-        query = query.where(JobPosting.tipe_pekerjaan == tipe_pekerjaan)
+    # Filter lokasi
+    if location and location.strip() and location != "Semua":
+        loc_clean = location.strip()
+        query = query.where(
+            or_(
+                JobPosting.kota.ilike(f"%{loc_clean}%"),
+                JobPosting.lokasi_kerja.ilike(f"%{loc_clean}%"),
+            )
+        )
 
-    if lokasi_kerja:
-        query = query.where(JobPosting.lokasi_kerja == lokasi_kerja)
+    # Filter kategori ID
+    if kategori_id and kategori_id.strip() and kategori_id != "Semua":
+        query = query.where(JobPosting.kategori_id == kategori_id.strip())
 
-    # Urutan terbaru dulu
+    # Filter jenis pekerjaan (tipe_pekerjaan)
+    if tipe_pekerjaan and tipe_pekerjaan.strip() and tipe_pekerjaan != "Semua":
+        tp = tipe_pekerjaan.strip()
+        # Mendukung variasi misal "Full-time" vs "full_time"
+        tp_alt = tp.replace("-", "_").lower()
+        query = query.where(
+            or_(
+                JobPosting.tipe_pekerjaan.ilike(f"%{tp}%"),
+                JobPosting.tipe_pekerjaan.ilike(f"%{tp_alt}%")
+            )
+        )
+
+    # Filter mode kerja (lokasi_kerja)
+    if lokasi_kerja and lokasi_kerja.strip() and lokasi_kerja != "Semua":
+        lk = lokasi_kerja.strip().lower()
+        query = query.where(JobPosting.lokasi_kerja.ilike(f"%{lk}%"))
+
+    # Filter tingkat pengalaman
+    if experience_level and experience_level.strip() and experience_level != "Semua":
+        el = experience_level.strip()
+        conditions = [JobPosting.experience_level.ilike(f"%{el}%")]
+        el_lower = el.lower()
+        if "0" in el or "1" in el or "entry" in el_lower:
+            conditions.extend([JobPosting.experience_level.ilike("%entry%"), JobPosting.experience_level.ilike("%0 - 1%"), JobPosting.experience_level.ilike("%0-1%")])
+        elif "2" in el or "4" in el or "mid" in el_lower:
+            conditions.extend([JobPosting.experience_level.ilike("%mid%"), JobPosting.experience_level.ilike("%2 - 4%"), JobPosting.experience_level.ilike("%2-4%")])
+        elif "5" in el or "senior" in el_lower:
+            conditions.extend([JobPosting.experience_level.ilike("%senior%"), JobPosting.experience_level.ilike("%5+%")])
+        elif "8" in el or "lead" in el_lower or "manager" in el_lower:
+            conditions.extend([JobPosting.experience_level.ilike("%lead%"), JobPosting.experience_level.ilike("%manager%"), JobPosting.experience_level.ilike("%8+%")])
+        query = query.where(or_(*conditions))
+
+    # Filter minimal pendidikan
+    if pendidikan_min and pendidikan_min.strip() and pendidikan_min != "Semua":
+        pm = pendidikan_min.strip()
+        query = query.where(JobPosting.pendidikan_min.ilike(f"%{pm}%"))
+
+    # Urutan dasar dari database
     query = query.order_by(JobPosting.created_at.desc())
     query = query.offset(offset).limit(limit)
 
     result = await db.execute(query)
     jobs = result.scalars().all()
 
-    # Ambil user token untuk hitung score
+    # Ambil user profile jika token ada
     token_payload = verify_token_optional(request)
     user_profile = None
+    user_has_cv = False
     if token_payload and token_payload.get("sub"):
         result_profile = await db.execute(select(PelamarProfile).where(PelamarProfile.user_id == token_payload["sub"]))
         user_profile = result_profile.scalars().first()
 
-    # Format response
+    # Format data
     data = []
     for job in jobs:
-        match_score = calculate_pofit_score(job, user_profile)
-        
-        # Penentuan alasan (reason) berdasar score
-        if match_score >= 85:
-            reason = "Sangat Cocok! Keahlian dan pengalaman Anda sangat relevan dengan posisi ini."
-        elif match_score >= 70:
-            reason = "Cukup Cocok. Anda memenuhi sebagian kriteria yang dibutuhkan."
-        else:
-            reason = "Kualifikasi Anda memiliki sedikit kecocokan dengan posisi ini."
+        match_score, reason, has_cv = calculate_pofit_score(job, user_profile)
+        if has_cv:
+            user_has_cv = True
 
         job_dict = {
             "id": job.id,
@@ -152,7 +269,6 @@ async def get_jobs(
             "tanggal_buka": str(job.tanggal_buka) if job.tanggal_buka else None,
             "tanggal_tutup": str(job.tanggal_tutup) if job.tanggal_tutup else None,
             "created_at": str(job.created_at) if job.created_at else None,
-            
             "department": job.department,
             "experience_level": job.experience_level,
             "benefits_json": job.benefits_json,
@@ -162,7 +278,6 @@ async def get_jobs(
             "match_score": match_score,
             "reason": reason,
         }
-        # Tambahkan info perusahaan
         if job.perusahaan:
             job_dict["perusahaan"] = {
                 "id": job.perusahaan.id,
@@ -182,7 +297,25 @@ async def get_jobs(
             }
         data.append(job_dict)
 
-    return {"message": "Daftar lowongan kerja", "total": len(data), "data": data}
+    # Sortir hasil sesuai instruksi:
+    # 1. Jika rekomendasi PO-Fit dan user punya CV: urutkan dari match_score tertinggi
+    # 2. Jika user belum punya CV: urutkan dari yang terbaru
+    if sort_by == "rekomendasi":
+        if user_has_cv:
+            data.sort(key=lambda x: (x["match_score"], x["created_at"] or ""), reverse=True)
+        else:
+            data.sort(key=lambda x: x["created_at"] or "", reverse=True)
+    elif sort_by == "terbaru":
+        data.sort(key=lambda x: x["created_at"] or "", reverse=True)
+    elif sort_by == "terlama":
+        data.sort(key=lambda x: x["created_at"] or "")
+
+    return {
+        "message": "Daftar lowongan kerja",
+        "total": len(data),
+        "user_has_cv": user_has_cv,
+        "data": data
+    }
 
 
 @router.get("/saved", response_model=List[dict])

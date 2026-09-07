@@ -56,7 +56,7 @@ async def get_applications(
     """
     Mendapatkan daftar lamaran.
     - Pelamar: Melihat semua lamaran miliknya.
-    - Perusahaan: Melihat semua lamaran yang masuk ke lowongan miliknya.
+    - Perusahaan: Melihat semua lamaran yang masuk ke lowongan miliknya
     """
     user_id = current_user.get("sub")
     role = current_user.get("role")

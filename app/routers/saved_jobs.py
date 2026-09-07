@@ -22,7 +22,7 @@ async def get_saved_jobs(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Mendapatkan daftar lowongan yang disimpan oleh pelamar yang sedang login.
+    Mendapatkan daftar loker yang disimpan oleh pelamar yang sedang login.
     """
     user_id = current_user.get("sub")
     role = current_user.get("role")

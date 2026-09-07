@@ -51,7 +51,7 @@ class AuthService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def _send_otp_email(self, email: str, otp_code: str, background_tasks: BackgroundTasks = None):
+    async def _send_otp_email(self, email: str, otp_code: str, background_tasks: BackgroundTasks = None, custom_subject: str = None, custom_body: str = None):
         """Helper untuk mengirim email OTP via SMTP atau mock console."""
         settings_query = await self.db.execute(select(SystemSetting).where(
             SystemSetting.key.in_(['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from', 'email_tpl_otp_subject', 'email_tpl_otp_body'])
@@ -81,12 +81,16 @@ class AuthService:
                 smtp_config[s.key] = val
                 
         # Template rendering
-        from app.services.email_service import DEFAULT_TEMPLATES
-        tpl_subj = smtp_config.get('email_tpl_otp_subject') or DEFAULT_TEMPLATES['email_tpl_otp_subject']
-        tpl_body = smtp_config.get('email_tpl_otp_body') or DEFAULT_TEMPLATES['email_tpl_otp_body']
-        
-        rendered_subj = tpl_subj.replace("{otp_code}", otp_code).replace("{nama_penerima}", email.split("@")[0]).replace("{kadaluarsa_menit}", "10")
-        rendered_body = tpl_body.replace("{otp_code}", otp_code).replace("{nama_penerima}", email.split("@")[0]).replace("{kadaluarsa_menit}", "10")
+        if custom_subject and custom_body:
+            rendered_subj = custom_subject
+            rendered_body = custom_body
+        else:
+            from app.services.email_service import DEFAULT_TEMPLATES
+            tpl_subj = smtp_config.get('email_tpl_otp_subject') or DEFAULT_TEMPLATES['email_tpl_otp_subject']
+            tpl_body = smtp_config.get('email_tpl_otp_body') or DEFAULT_TEMPLATES['email_tpl_otp_body']
+            
+            rendered_subj = tpl_subj.replace("{otp_code}", otp_code).replace("{nama_penerima}", email.split("@")[0]).replace("{kadaluarsa_menit}", "10")
+            rendered_body = tpl_body.replace("{otp_code}", otp_code).replace("{nama_penerima}", email.split("@")[0]).replace("{kadaluarsa_menit}", "10")
 
         if background_tasks and smtp_config.get('smtp_host') and smtp_config.get('smtp_from'):
             background_tasks.add_task(
@@ -130,9 +134,10 @@ class AuthService:
                     "message": f"Akun Anda belum aktif. Kode OTP baru telah dikirimkan ke {email}"
                 }
 
+            role_label = "pelamar" if existing_user.role == "pelamar" else ("perusahaan" if existing_user.role == "perusahaan" else existing_user.role)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Alamat email ini sudah terdaftar sebagai akun perusahaan. Silakan langsung masuk (login)."
+                detail=f"Alamat email ini sudah terdaftar sebagai akun {role_label}. Silakan langsung masuk (login) atau gunakan fitur Lupa Password jika lupa kata sandi."
             )
 
         # 1.1 Khusus Perusahaan: Cek keunikan domain email perusahaan (1 Perusahaan = 1 Perwakilan Terdaftar)
@@ -269,6 +274,94 @@ class AuthService:
             "is_verified": is_verified,
         }
 
+    async def forgot_password(self, email: str, background_tasks: BackgroundTasks = None) -> dict:
+        """Mengirimkan kode OTP untuk reset kata sandi."""
+        result = await self.db.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Pengguna dengan email tersebut tidak ditemukan."
+            )
+
+        if user.is_banned:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Akun Anda telah dinonaktifkan oleh administrator."
+            )
+
+        otp_code = "".join(random.choices(string.digits, k=6))
+        user.otp_code = otp_code
+        user.otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+        await self.db.commit()
+
+        reset_subj = "Kode OTP Reset Password - AI Recruit Pro"
+        reset_body = (
+            f"Halo,\n\n"
+            f"Kami menerima permintaan untuk mereset kata sandi akun AI Recruit Pro Anda ({email}).\n"
+            f"Kode OTP Anda adalah: {otp_code}\n\n"
+            f"Kode ini berlaku selama 10 menit. Jika Anda tidak meminta reset kata sandi, silakan abaikan email ini.\n\n"
+            f"Terima kasih,\nTim AI Recruit Pro"
+        )
+
+        await self._send_otp_email(email, otp_code, background_tasks, custom_subject=reset_subj, custom_body=reset_body)
+
+        return {
+            "status": "success",
+            "message": f"Kode OTP reset password telah dikirimkan ke {email}"
+        }
+
+    async def verify_reset_otp(self, email: str, otp_code: str) -> dict:
+        """Memverifikasi bahwa kode OTP reset kata sandi valid."""
+        result = await self.db.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna dengan email tersebut tidak ditemukan.")
+
+        if not user.otp_code or user.otp_code != otp_code:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kode OTP salah. Silakan periksa kembali email Anda.")
+
+        if not user.otp_expires_at or datetime.now(timezone.utc) > user.otp_expires_at:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kode OTP sudah kadaluarsa. Silakan minta kode OTP baru.")
+
+        return {
+            "status": "success",
+            "message": "Kode OTP valid."
+        }
+
+    async def reset_password(self, email: str, otp_code: str, new_password: str) -> dict:
+        """Mereset password pengguna setelah memverifikasi OTP."""
+        result = await self.db.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna tidak ditemukan.")
+
+        if not user.otp_code or user.otp_code != otp_code:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kode OTP salah. Silakan periksa kembali email Anda.")
+
+        if not user.otp_expires_at or datetime.now(timezone.utc) > user.otp_expires_at:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kode OTP sudah kadaluarsa. Silakan minta kode OTP baru.")
+
+        # Update password & bersihkan OTP
+        user.password_hash = hash_password(new_password)
+        user.otp_code = None
+        user.otp_expires_at = None
+
+        # Jika akun sebelumnya belum aktif karena belum verifikasi OTP pendaftaran, otomatis aktifkan
+        if not user.is_active:
+            user.is_active = True
+            user.email_verified_at = datetime.now(timezone.utc)
+
+        await self.db.commit()
+
+        return {
+            "status": "success",
+            "message": "Password berhasil diperbarui. Silakan masuk menggunakan password baru Anda."
+        }
+
     async def login(self, email: str, password: str, expected_role: str | None = None) -> dict:
         """Login user - WAJIB sudah verifikasi OTP (is_active == True)."""
         # 1. Cari user
@@ -282,26 +375,27 @@ class AuthService:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # 2. Verifikasi password
-        if not verify_password(password, user.password_hash):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Email atau kata sandi salah",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # 3. Verifikasi role spesifik jika diminta
+        # 2. Verifikasi role spesifik jika diminta
         if expected_role and user.role != expected_role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Akses ditolak. Silakan gunakan form login untuk {user.role}.",
             )
 
-        # 4. Verifikasi status aktif akun (WAJIB OTP)
+        # 3. Verifikasi status aktif akun (WAJIB OTP)
+        # Jika akun belum aktif (misal pendaftaran belum verifikasi OTP), berikan info yang jelas
         if not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Akun Anda belum aktif. Harap verifikasi kode OTP yang telah dikirimkan ke email Anda terlebih dahulu sebelum masuk.",
+                detail="Akun Anda belum aktif. Anda belum memasukkan kode OTP saat pendaftaran. Harap verifikasi kode OTP yang telah dikirimkan ke email Anda terlebih dahulu.",
+            )
+
+        # 4. Verifikasi password
+        if not verify_password(password, user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email atau kata sandi salah",
+                headers={"WWW-Authenticate": "Bearer"},
             )
 
         # 5. Cek banned

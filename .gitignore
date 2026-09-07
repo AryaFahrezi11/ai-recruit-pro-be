@@ -1,33 +1,8 @@
-# Virtual Environment
-venv/
-.venv/
-
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.egg-info/
-dist/
-build/
-
-# Environment
-.env
-
-# IDE
-.vscode/
-.idea/
-
-# AI Model Cache
-models_cache/
-
-# OS
-.DS_Store
-Thumbs.db
-*.pt
-*.task
-
+﻿venv/
+.venv/
 __pycache__/
 *.pyc
+.env
+.vscode/
 uploads/
 temp_videos/
-.vscode/

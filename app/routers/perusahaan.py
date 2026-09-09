@@ -57,11 +57,23 @@ async def upload_company_logo(file: UploadFile = File(...), current_user: dict =
     return {"status": "success", "logo_url": logo_url}
 
 
+from typing import Optional
+
 @router.get("/verified")
-async def get_verified_companies_public(db: AsyncSession = Depends(get_db)):
+async def get_verified_companies_public(
+    keyword: Optional[str] = None,
+    industry: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
     """Mendapatkan daftar perusahaan terverifikasi untuk halaman utama (publik)."""
     service = PerusahaanService(db)
-    return await service.get_verified_companies_public()
+    return await service.get_verified_companies_public(keyword=keyword, industry=industry)
+
+@router.get("/industries")
+async def get_companies_industries(db: AsyncSession = Depends(get_db)):
+    """Mendapatkan daftar industri yang tersedia dari perusahaan terverifikasi."""
+    service = PerusahaanService(db)
+    return await service.get_industries()
 
 @router.get("/{company_id}")
 async def get_company_profile(company_id: str, db: AsyncSession = Depends(get_db)):

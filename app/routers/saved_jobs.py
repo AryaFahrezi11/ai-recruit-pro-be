@@ -40,7 +40,7 @@ async def get_saved_jobs(
     # Fetch saved jobs
     result = await db.execute(
         select(SavedJob)
-        .where(SavedJob.pelamar_id == profile.id)
+        .where(SavedJob.user_id == user_id)
         .order_by(SavedJob.created_at.desc())
     )
     saved_items = result.scalars().all()
@@ -119,7 +119,7 @@ async def save_job(
     # Check if already saved
     res_s = await db.execute(
         select(SavedJob).where(
-            SavedJob.pelamar_id == profile.id,
+            SavedJob.user_id == user_id,
             SavedJob.job_id == str(job_id)
         )
     )
@@ -128,7 +128,7 @@ async def save_job(
         return {"message": "Lowongan sudah ada di daftar tersimpan", "saved": True}
 
     new_saved = SavedJob(
-        pelamar_id=profile.id,
+        user_id=user_id,
         job_id=str(job_id)
     )
     db.add(new_saved)
@@ -160,7 +160,7 @@ async def remove_saved_job(
 
     res_s = await db.execute(
         select(SavedJob).where(
-            SavedJob.pelamar_id == profile.id,
+            SavedJob.user_id == user_id,
             SavedJob.job_id == str(job_id)
         )
     )

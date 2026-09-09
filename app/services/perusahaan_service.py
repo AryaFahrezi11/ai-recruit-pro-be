@@ -105,14 +105,23 @@ class PerusahaanService:
         await self.db.commit()
         return await self.get_settings(user_id)
 
-    async def get_verified_companies_public(self):
+    async def get_verified_companies_public(self, keyword: str = None, industry: str = None):
         from sqlalchemy.orm import selectinload, defer
         from app.models.job import JobPosting
-        result = await self.db.execute(
+        
+        query = (
             select(PerusahaanProfile)
             .options(selectinload(PerusahaanProfile.job_postings).defer(JobPosting.jd_embedding))
             .where(PerusahaanProfile.is_verified == True)
         )
+        
+        if keyword:
+            query = query.where(PerusahaanProfile.nama_perusahaan.ilike(f"%{keyword}%"))
+            
+        if industry and industry.lower() not in ["semua", "all"]:
+            query = query.where(PerusahaanProfile.industri.ilike(f"%{industry}%"))
+
+        result = await self.db.execute(query)
         companies = result.scalars().all()
         
         data = []
@@ -126,6 +135,16 @@ class PerusahaanService:
                 "jobs_count": len([j for j in comp.job_postings if j.status == 'active'])
             })
         return data
+        
+    async def get_industries(self):
+        result = await self.db.execute(
+            select(PerusahaanProfile.industri)
+            .where(PerusahaanProfile.is_verified == True)
+            .where(PerusahaanProfile.industri.isnot(None))
+            .distinct()
+        )
+        industries = result.scalars().all()
+        return [i for i in industries if i and i.strip()]
         
     async def get_company_profile(self, company_id: str):
         from sqlalchemy.orm import selectinload, defer

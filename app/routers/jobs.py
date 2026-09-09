@@ -451,7 +451,7 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
     return response
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_job(
     req: JobPostingCreate,
     request: Request,

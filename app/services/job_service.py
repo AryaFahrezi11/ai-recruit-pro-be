@@ -3,7 +3,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import defer
 from fastapi import HTTPException
 from app.models.job import JobPosting, JobCategory, SavedJob
-from app.models.user import PerusahaanProfile
+from app.models.user import PerusahaanProfile, PelamarProfile
 from app.schemas.job import JobPostingCreate
 
 class JobService:
@@ -176,13 +176,18 @@ class JobService:
     async def get_saved_jobs(self, user_id: str):
         """Mendapatkan daftar lowongan yang disimpan oleh pelamar."""
         from sqlalchemy.orm import selectinload
+        res_p = await self.db.execute(select(PelamarProfile).where(PelamarProfile.user_id == user_id))
+        profile = res_p.scalars().first()
+        if not profile:
+            return []
+
         result = await self.db.execute(
             select(SavedJob)
             .options(
                 selectinload(SavedJob.job).selectinload(JobPosting.perusahaan),
                 defer(JobPosting.jd_embedding)
             )
-            .where(SavedJob.user_id == user_id)
+            .where(SavedJob.pelamar_id == profile.id)
             .order_by(SavedJob.created_at.desc())
         )
         saved_jobs = result.scalars().all()
@@ -197,23 +202,35 @@ class JobService:
         if not job:
             raise HTTPException(status_code=404, detail="Lowongan tidak ditemukan.")
 
+        res_p = await self.db.execute(select(PelamarProfile).where(PelamarProfile.user_id == user_id))
+        profile = res_p.scalars().first()
+        if not profile:
+            profile = PelamarProfile(user_id=user_id, nama_lengkap="Pelamar")
+            self.db.add(profile)
+            await self.db.flush()
+
         # Cek apakah sudah disimpan
         result = await self.db.execute(
-            select(SavedJob).where(SavedJob.user_id == user_id, SavedJob.job_id == job_id)
+            select(SavedJob).where(SavedJob.pelamar_id == profile.id, SavedJob.job_id == job_id)
         )
         existing = result.scalars().first()
         if existing:
             return {"message": "Lowongan sudah disimpan."}
 
-        new_saved_job = SavedJob(user_id=user_id, job_id=job_id)
+        new_saved_job = SavedJob(pelamar_id=profile.id, job_id=job_id)
         self.db.add(new_saved_job)
         await self.db.commit()
         return {"message": "Lowongan berhasil disimpan."}
 
     async def remove_saved_job(self, user_id: str, job_id: str):
         """Menghapus lowongan dari daftar simpanan."""
+        res_p = await self.db.execute(select(PelamarProfile).where(PelamarProfile.user_id == user_id))
+        profile = res_p.scalars().first()
+        if not profile:
+            raise HTTPException(status_code=404, detail="Lowongan tersimpan tidak ditemukan.")
+
         result = await self.db.execute(
-            select(SavedJob).where(SavedJob.user_id == user_id, SavedJob.job_id == job_id)
+            select(SavedJob).where(SavedJob.pelamar_id == profile.id, SavedJob.job_id == job_id)
         )
         saved_job = result.scalars().first()
         if not saved_job:

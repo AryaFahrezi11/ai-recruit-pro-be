@@ -105,8 +105,9 @@ class PerusahaanService:
         await self.db.commit()
         return await self.get_settings(user_id)
 
-    async def get_verified_companies_public(self, keyword: str = None, industry: str = None):
+    async def get_verified_companies_public(self, keyword: str = None, industry: str = None, location: str = None):
         from sqlalchemy.orm import selectinload, defer
+        from sqlalchemy import or_
         from app.models.job import JobPosting
         
         query = (
@@ -116,10 +117,27 @@ class PerusahaanService:
         )
         
         if keyword:
-            query = query.where(PerusahaanProfile.nama_perusahaan.ilike(f"%{keyword}%"))
+            kw = keyword.strip()
+            query = query.where(
+                or_(
+                    PerusahaanProfile.nama_perusahaan.ilike(f"%{kw}%"),
+                    PerusahaanProfile.alamat.ilike(f"%{kw}%"),
+                    PerusahaanProfile.kota.ilike(f"%{kw}%"),
+                    PerusahaanProfile.industri.ilike(f"%{kw}%")
+                )
+            )
             
         if industry and industry.lower() not in ["semua", "all"]:
-            query = query.where(PerusahaanProfile.industri.ilike(f"%{industry}%"))
+            query = query.where(PerusahaanProfile.industri.ilike(f"%{industry.strip()}%"))
+
+        if location and location.lower() not in ["semua", "all"]:
+            loc = location.strip()
+            query = query.where(
+                or_(
+                    PerusahaanProfile.alamat.ilike(f"%{loc}%"),
+                    PerusahaanProfile.kota.ilike(f"%{loc}%")
+                )
+            )
 
         result = await self.db.execute(query)
         companies = result.scalars().all()
@@ -131,10 +149,39 @@ class PerusahaanService:
                 "nama_perusahaan": comp.nama_perusahaan,
                 "logo_url": comp.logo_url,
                 "industri": comp.industri,
+                "alamat": comp.alamat,
+                "kota": comp.kota or comp.alamat,
+                "provinsi": comp.provinsi,
+                "deskripsi": comp.deskripsi,
+                "ukuran": comp.ukuran,
+                "website_url": comp.website_url,
                 "rating": 5.0, # dummy rating
                 "jobs_count": len([j for j in comp.job_postings if j.status == 'active'])
             })
         return data
+
+    async def get_company_locations(self):
+        query = (
+            select(PerusahaanProfile.alamat)
+            .where(
+                PerusahaanProfile.is_verified == True,
+                PerusahaanProfile.alamat.isnot(None),
+                PerusahaanProfile.alamat != ""
+            )
+            .distinct()
+            .limit(20)
+        )
+        result = await self.db.execute(query)
+        rows = result.scalars().all()
+        locations = []
+        for r in rows:
+            if r and r.strip():
+                val = r.strip()
+                if val not in locations:
+                    locations.append(val)
+        if not locations:
+            locations = ["Jakarta", "Bandung", "Surabaya", "Tegal", "Semarang", "Yogyakarta"]
+        return {"locations": locations}
         
     async def get_industries(self):
         result = await self.db.execute(

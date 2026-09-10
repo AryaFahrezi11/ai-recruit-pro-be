@@ -63,11 +63,18 @@ from typing import Optional
 async def get_verified_companies_public(
     keyword: Optional[str] = None,
     industry: Optional[str] = None,
+    location: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
     """Mendapatkan daftar perusahaan terverifikasi untuk halaman utama (publik)."""
     service = PerusahaanService(db)
-    return await service.get_verified_companies_public(keyword=keyword, industry=industry)
+    return await service.get_verified_companies_public(keyword=keyword, industry=industry, location=location)
+
+@router.get("/locations")
+async def get_company_locations(db: AsyncSession = Depends(get_db)):
+    """Mendapatkan daftar alamat/lokasi dari perusahaan terverifikasi (tabel perusahaan_profiles kolom alamat)."""
+    service = PerusahaanService(db)
+    return await service.get_company_locations()
 
 @router.get("/industries")
 async def get_companies_industries(db: AsyncSession = Depends(get_db)):

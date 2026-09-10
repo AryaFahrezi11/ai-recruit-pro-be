@@ -1241,3 +1241,27 @@ async def get_video_analysis_progress(
         "message": "Belum ada analisis video yang berjalan",
         "error": None
     }
+
+
+
+@router.delete("/{application_id}", status_code=status.HTTP_200_OK)
+async def delete_application(
+    application_id: str,
+    current_user: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Menghapus berkas lamaran / arsip dari database.
+    """
+    result = await db.execute(select(Application).where(Application.id == application_id))
+    app_record = result.scalars().first()
+
+    if not app_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lamaran tidak ditemukan"
+        )
+
+    await db.delete(app_record)
+    await db.commit()
+    return {"message": "Lamaran berhasil dihapus dari arsip."}

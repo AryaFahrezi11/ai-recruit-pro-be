@@ -101,6 +101,34 @@ async def get_job_categories(db: AsyncSession = Depends(get_db)):
     return await service.get_categories()
 
 
+@router.post("/categories", status_code=status.HTTP_201_CREATED)
+async def create_job_category(
+    req: dict,
+    current_user: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """Membuat kategori pekerjaan baru oleh perusahaan."""
+    from sqlalchemy import func
+    nama_kategori = (req.get("nama_kategori") or "").strip()
+    deskripsi = (req.get("deskripsi") or "").strip()
+
+    if not nama_kategori:
+        raise HTTPException(status_code=400, detail="Nama kategori tidak boleh kosong.")
+
+    res = await db.execute(
+        select(JobCategory).where(func.lower(JobCategory.nama_kategori) == nama_kategori.lower())
+    )
+    existing = res.scalars().first()
+    if existing:
+        return {"id": existing.id, "nama_kategori": existing.nama_kategori, "deskripsi": existing.deskripsi}
+
+    new_cat = JobCategory(nama_kategori=nama_kategori, deskripsi=deskripsi or "Kategori baru dibuat oleh perusahaan")
+    db.add(new_cat)
+    await db.commit()
+    await db.refresh(new_cat)
+    return {"id": new_cat.id, "nama_kategori": new_cat.nama_kategori, "deskripsi": new_cat.deskripsi}
+
+
 @router.get("/locations")
 async def get_job_locations(db: AsyncSession = Depends(get_db)):
     """Mendapatkan daftar lokasi lowongan yang paling sering muncul."""

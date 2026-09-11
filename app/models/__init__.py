@@ -10,3 +10,4 @@ from .setting import SystemSetting
 from .audit import AuditLog
 
 from app.models.video_task import VideoAnalysisJob
+from app.models.review import PlatformReview

@@ -323,7 +323,7 @@ async def run_ai_screening_background(application_id: str, embedding_service):
                 )
 
             # Update Application Status & Simpan Hasil
-            app_record.status = "virtual_interview" if analysis_result["hasil"] == "lolos" else "ditolak"
+            app_record.status = "virtual_interview" if analysis_result["hasil"] == "lolos" else "ditolak_sistem"
             
             cv_analysis = CVAnalysisResult(
                 application_id=app_record.id,
@@ -762,7 +762,7 @@ async def update_application_status(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Mengubah status lamaran (misalnya dari cv_screening ke virtual_interview, interview_lanjutan, hired, atau rejected).
+    Mengubah Riwayat Lamaran (misalnya dari cv_screening ke virtual_interview, interview_lanjutan, hired, atau rejected).
     Hanya bisa dilakukan oleh perusahaan/admin.
     """
     role = current_user.get("role")
@@ -825,7 +825,7 @@ async def update_application_status(
             
             if payload.status == "virtual_interview":
                 subj_tpl = getattr(comp_settings, 'email_invitation_subject', None) or "[AI Recruit Pro] Undangan Wawancara Video Virtual - {{job_title}}"
-                body_tpl = getattr(comp_settings, 'email_invitation_body', None) or "Halo {{candidate_name}}, Selamat! CV Anda telah lolos tahap seleksi awal (PO-FIT). Silakan masuk ke portal status lamaran Anda untuk merekam wawancara video virtual: {{interview_link}}"
+                body_tpl = getattr(comp_settings, 'email_invitation_body', None) or "Halo {{candidate_name}}, Selamat! CV Anda telah lolos tahap seleksi awal (PO-FIT). Silakan masuk ke portal Riwayat Lamaran Anda untuk merekam wawancara video virtual: {{interview_link}}"
             elif payload.status == "interview_lanjutan":
                 subj_tpl = getattr(comp_settings, 'email_interview_user_subject', None) or "[AI Recruit Pro] Undangan Wawancara Lanjutan - {{job_title}} di {{company_name}}"
                 body_tpl = getattr(comp_settings, 'email_interview_user_body', None) or "Halo {{candidate_name}},\n\nSelamat! Berdasarkan hasil evaluasi tahapan sebelumnya, kami ingin mengundang Anda untuk mengikuti Wawancara Lanjutan pada:\n\nJadwal: {{jadwal_wawancara}}\nLokasi / Link: {{lokasi_atau_link}}\n\nCatatan Tambahan:\n{{catatan_hr}}\n\nMohon konfirmasi kehadiran Anda dengan membalas email ini.\n\nSalam sukses,\nTim HR {{company_name}}"
@@ -833,7 +833,7 @@ async def update_application_status(
                 subj_tpl = getattr(comp_settings, 'email_hire_subject', None) or "[AI Recruit Pro] Selamat! Anda Diterima di {{company_name}}"
                 body_tpl = getattr(comp_settings, 'email_hire_body', None) or "Halo {{candidate_name}}, Selamat! Kami dengan senang hati menawarkan Anda posisi {{job_title}} di {{company_name}}."
             elif payload.status == "rejected":
-                subj_tpl = getattr(comp_settings, 'email_reject_subject', None) or "[AI Recruit Pro] Update Status Lamaran: {{job_title}}"
+                subj_tpl = getattr(comp_settings, 'email_reject_subject', None) or "[AI Recruit Pro] Update Riwayat Lamaran: {{job_title}}"
                 body_tpl = getattr(comp_settings, 'email_reject_body', None) or "Halo {{candidate_name}}, Terima kasih atas ketertarikan Anda pada posisi {{job_title}} di {{company_name}}. Sayangnya, saat ini kami memutuskan untuk melanjutkan dengan kandidat lain yang lebih sesuai.\n\nCatatan: {{alasan_penolakan}}"
 
             if subj_tpl and body_tpl:
@@ -988,7 +988,7 @@ async def process_video_job(job_id: str, application_id: str):
             await update_job(application_id, job_status="failed", error_message=pesan_error, current_step=f"Gagal: {pesan_error}")
             return
 
-        # 6. Simpan Hasil Akhir ke Database & Ubah Status Lamaran ke human_validation
+        # 6. Simpan Hasil Akhir ke Database & Ubah Riwayat Lamaran ke human_validation
         await update_job(application_id, progress=98, current_step="Menyimpan hasil evaluasi AI...")
 
         async with async_session() as session:
@@ -1178,7 +1178,7 @@ async def analyze_interview_video(
         )
         db.add(new_job)
 
-    # Pastikan status lamaran adalah video_analysis
+    # Pastikan Riwayat Lamaran adalah video_analysis
     app_data.status = "video_analysis"
     await db.commit()
 

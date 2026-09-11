@@ -323,7 +323,7 @@ async def run_ai_screening_background(application_id: str, embedding_service):
                 )
 
             # Update Application Status & Simpan Hasil
-            app_record.status = "virtual_interview" if analysis_result["hasil"] == "lolos" else "ditolak_sistem"
+            app_record.status = "virtual_interview" if analysis_result["hasil"] == "lolos" else "rejected"
             
             cv_analysis = CVAnalysisResult(
                 application_id=app_record.id,
@@ -340,6 +340,60 @@ async def run_ai_screening_background(application_id: str, embedding_service):
             db.add(cv_analysis)
             
             await db.commit()
+            
+            # Send automated emails based on AI decision
+            if app_record.status in ["rejected", "virtual_interview"]:
+                try:
+                    from app.models.user import PerusahaanSettings, PerusahaanProfile, PelamarProfile, User
+                    from app.services.email_service import send_rendered_email
+                    
+                    perusahaan_result = await db.execute(select(PerusahaanProfile).where(PerusahaanProfile.id == job.perusahaan_id))
+                    perusahaan = perusahaan_result.scalars().first()
+                    
+                    pelamar = await db.get(PelamarProfile, app_record.pelamar_id)
+                    user = await db.get(User, pelamar.user_id) if pelamar else None
+                    candidate_email = user.email if user else (cv_doc.email or None)
+                    
+                    if perusahaan and candidate_email:
+                        comp_settings_res = await db.execute(select(PerusahaanSettings).where(PerusahaanSettings.user_id == perusahaan.user_id))
+                        comp_settings = comp_settings_res.scalars().first()
+                        
+                        company_name = perusahaan.nama_perusahaan or "Perusahaan"
+                        job_title = job.judul_posisi or "Posisi"
+                        candidate_name = pelamar.nama_lengkap or (user.nama_lengkap if user else candidate_email.split("@")[0])
+                        
+                        if app_record.status == "rejected":
+                            subj_tpl = getattr(comp_settings, 'email_reject_subject', None) or "[AI Recruit Pro] Update Riwayat Lamaran: {{job_title}}"
+                            body_tpl = getattr(comp_settings, 'email_reject_body', None) or "Halo {{candidate_name}}, Terima kasih atas ketertarikan Anda pada posisi {{job_title}} di {{company_name}}. Sayangnya, saat ini kami memutuskan untuk melanjutkan dengan kandidat lain yang lebih sesuai.\n\nCatatan: {{alasan_penolakan}}"
+                            rejection_reason = "Berdasarkan hasil seleksi awal (CV Screening) oleh sistem AI kami, kualifikasi profil Anda belum memenuhi kriteria skor kecocokan minimum yang dibutuhkan perusahaan untuk posisi ini."
+                        else:
+                            subj_tpl = getattr(comp_settings, 'email_invitation_subject', None) or "[AI Recruit Pro] Undangan Wawancara Video Virtual - {{job_title}}"
+                            body_tpl = getattr(comp_settings, 'email_invitation_body', None) or "Halo {{candidate_name}}, Selamat! CV Anda telah lolos tahap seleksi awal (PO-FIT). Silakan masuk ke portal Riwayat Lamaran Anda untuk merekam wawancara video virtual: {{interview_link}}"
+                            rejection_reason = ""
+                        
+                        replace_dict = {
+                            "{{candidate_name}}": candidate_name,
+                            "{nama_pelamar}": candidate_name,
+                            "{{job_title}}": job_title,
+                            "{judul_posisi}": job_title,
+                            "{{company_name}}": company_name,
+                            "{nama_perusahaan}": company_name,
+                            "{{alasan_penolakan}}": rejection_reason,
+                            "{alasan_penolakan}": rejection_reason,
+                            "{{interview_link}}": "http://localhost:3000/applicant/status",
+                            "{link_interview}": "http://localhost:3000/applicant/status",
+                        }
+                        
+                        final_subj = subj_tpl
+                        final_body = body_tpl
+                        for k, v in replace_dict.items():
+                            final_subj = final_subj.replace(k, str(v))
+                            final_body = final_body.replace(k, str(v))
+                            
+                        await send_rendered_email(db, recipient=candidate_email, subject=final_subj, body=final_body)
+                except Exception as email_err:
+                    print(f"[Applications] Gagal mengirim email otomatis dari AI Screening: {email_err}")
+                    
         except Exception as e:
             print("Background AI Screening failed:", e)
 
@@ -1154,7 +1208,7 @@ async def upload_interview_video(
 
     return {
         "status": "success",
-        "message": "Video Wawancara Berhasil Disimpan. Terima kasih telah menyelesaikan tahap ini. Rekaman Anda telah diterima oleh sistem dan sedang menunggu peninjauan lebih lanjut oleh HRD. Anda dapat menutup halaman ini dengan aman."
+        "message": "Video Wawancara Berhasil Disimpan."
     }
 
 @router.post("/{application_id}/analyze-video")

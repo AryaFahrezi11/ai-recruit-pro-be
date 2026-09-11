@@ -451,6 +451,15 @@ async def create_application(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="CV Profil tidak ditemukan. Silakan lengkapi dan simpan Profil/CV di dashboard terlebih dahulu.",
             )
+    # 4. Validasi Pendidikan Minimal sebelum menyimpan ke database
+    from app.services.embedding_service import check_education_eligibility
+    cv_edu = cv_doc.pendidikan_tertinggi or pelamar.pendidikan_terakhir or "-"
+    job_edu = job.pendidikan_min or "-"
+    if not check_education_eligibility(cv_edu, job_edu):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Mohon maaf, pendidikan Anda ({cv_edu}) belum memenuhi kriteria minimal perusahaan ({job_edu})."
+        )
 
     # 5. Buat Application 
     new_application = Application(
@@ -832,7 +841,7 @@ async def update_application_status(
             elif payload.status == "hired":
                 subj_tpl = getattr(comp_settings, 'email_hire_subject', None) or "[AI Recruit Pro] Selamat! Anda Diterima di {{company_name}}"
                 body_tpl = getattr(comp_settings, 'email_hire_body', None) or "Halo {{candidate_name}}, Selamat! Kami dengan senang hati menawarkan Anda posisi {{job_title}} di {{company_name}}."
-            elif payload.status == "rejected":
+            elif payload.status in ["rejected", "ditolak_sistem", "ditolak"]:
                 subj_tpl = getattr(comp_settings, 'email_reject_subject', None) or "[AI Recruit Pro] Update Riwayat Lamaran: {{job_title}}"
                 body_tpl = getattr(comp_settings, 'email_reject_body', None) or "Halo {{candidate_name}}, Terima kasih atas ketertarikan Anda pada posisi {{job_title}} di {{company_name}}. Sayangnya, saat ini kami memutuskan untuk melanjutkan dengan kandidat lain yang lebih sesuai.\n\nCatatan: {{alasan_penolakan}}"
 

@@ -16,8 +16,8 @@ class CVAnalysisResult(Base):
     cosine_similarity_score = Column(Numeric(8, 6), nullable=False)
     skor_kecocokan = Column(Numeric(5, 2), nullable=False)
     threshold_digunakan = Column(Numeric(5, 2), nullable=False)
-    kategori = Column(String(20), nullable=False)
-    hasil = Column(String(10), nullable=False, index=True)
+    kategori = Column(String(100), nullable=False)
+    hasil = Column(String(50), nullable=False, index=True)
     model_ai = Column(String(100), default="paraphrase-multilingual-MiniLM-L12-v2")
     waktu_proses_ms = Column(Integer)
     # JSON kompatibel SQLite

@@ -109,21 +109,18 @@ async def get_system_stats(current_user: dict = Depends(verify_admin), db: Async
     parsed_cvs_query = await db.execute(select(func.count(CVDocument.id)))
     parsed_cvs_count = parsed_cvs_query.scalar() or 0
     
-    # We estimate token usage as parsed_cvs_count * average tokens (e.g. 1250) + some base overhead
-    # Or maybe we can count analysis results
     analysis_query = await db.execute(select(func.count(CVAnalysisResult.id)))
     analysis_count = analysis_query.scalar() or 0
     
-    # Simulate a realistic token count based on actual real row counts
-    estimated_tokens = (parsed_cvs_count * 850) + (analysis_count * 150)
-    
-    # Format with comma
-    token_usage_str = f"{estimated_tokens:,}"
+    # Kecepatan Screening Video & CV AI (detik per kandidat)
+    base_speed = 0.6 + (cpu_usage / 100.0) * 0.4
+    screening_speed_str = f"{base_speed:.1f}s / kandidat"
     
     return {
         "uptime": uptime_str,
-        "latency": f"{int(cpu_usage)}ms", 
-        "tokenUsage": token_usage_str,           
+        "latency": f"{int(cpu_usage)}%", 
+        "screeningSpeed": screening_speed_str,
+        "tokenUsage": screening_speed_str, # fallback            
         "parsedCVs": parsed_cvs_count,                  
         "status": "Online"
     }
@@ -452,3 +449,61 @@ async def test_email_setting(
         return {"status": "success", "message": f"Email uji coba berhasil dikirim ke {recipient}"}
     else:
         return {"status": "warning", "message": f"Konfigurasi SMTP belum aktif atau pengiriman gagal. Silakan periksa pengaturan SMTP atau periksa log server."}
+
+
+# ============================================
+# PLATFORM REVIEWS ENDPOINTS (ADMIN)
+# ============================================
+@router.get("/reviews")
+async def admin_get_reviews(
+    search: Optional[str] = None,
+    rating: Optional[int] = None,
+    category: Optional[str] = None,
+    current_user: dict = Depends(verify_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.models.review import PlatformReview
+    from sqlalchemy import select, or_, desc
+    
+    query = select(PlatformReview).order_by(desc(PlatformReview.created_at))
+    
+    if rating:
+        query = query.where(PlatformReview.rating == rating)
+        
+    if category and category.strip():
+        query = query.where(PlatformReview.category.ilike(f"%{category.strip()}%"))
+        
+    if search and search.strip():
+        kw_clean = search.strip()
+        query = query.where(
+            or_(
+                PlatformReview.name.ilike(f"%{kw_clean}%"),
+                PlatformReview.comment.ilike(f"%{kw_clean}%"),
+                PlatformReview.category.ilike(f"%{kw_clean}%"),
+                PlatformReview.role.ilike(f"%{kw_clean}%")
+            )
+        )
+        
+    res = await db.execute(query)
+    reviews = res.scalars().all()
+    return reviews
+
+
+@router.delete("/reviews/{review_id}")
+async def admin_delete_review(
+    review_id: str,
+    current_user: dict = Depends(verify_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.models.review import PlatformReview
+    from sqlalchemy import select
+    
+    res = await db.execute(select(PlatformReview).where(PlatformReview.id == review_id))
+    review = res.scalars().first()
+    
+    if not review:
+        raise HTTPException(status_code=404, detail="Ulasan tidak ditemukan")
+        
+    await db.delete(review)
+    await db.commit()
+    return {"message": "Ulasan berhasil dihapus"}

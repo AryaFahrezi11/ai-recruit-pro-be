@@ -107,28 +107,40 @@ def _summarize_answer_indonesian(q: str, raw_text: str) -> str:
         clean_snippet = clean_snippet[:140] + "..."
     return f"Kandidat menanggapi pertanyaan dengan memaparkan: \"{clean_snippet}\"."
 
-def _generate_executive_summary(pertanyaan_results: list, terjawab_count: int, total_pertanyaan: int) -> str:
+def _generate_executive_summary(pertanyaan_results: list, terjawab_count: int, total_pertanyaan: int, pelafalan_dict: dict = None) -> str:
     paragraphs = []
     if terjawab_count == total_pertanyaan:
-        intro = f"Kandidat telah menyelesaikan sesi wawancara video dengan sangat baik dan menjawab seluruh {total_pertanyaan} pertanyaan yang diajukan secara terstruktur."
+        intro = f"Kandidat telah menyelesaikan sesi wawancara video dan menjawab seluruh {total_pertanyaan} pertanyaan yang diajukan secara terstruktur."
     elif terjawab_count > 0:
         intro = f"Kandidat telah menyelesaikan sesi wawancara video dengan merespon {terjawab_count} dari {total_pertanyaan} pertanyaan yang diajukan."
     else:
-        intro = "Kandidat telah mengunggah rekaman wawancara, namun respon suara verbal belum terdeteksi secara optimal terhadap pertanyaan yang diajukan."
+        intro = "Kandidat telah mengunggah rekaman wawancara, namun jawaban suara tidak terdeteksi atau pelamar belum menjawab pertanyaan yang diajukan."
     paragraphs.append(intro)
     
     poin_jawaban = []
     for item in pertanyaan_results:
         if item["status"] in ["Terjawab", "Terjawab Sebagian"] and item.get("ringkasan"):
             poin_jawaban.append(f"• {item['pertanyaan']}: {item['ringkasan']}")
+        elif item["status"] == "Tidak Terjawab":
+            poin_jawaban.append(f"• {item['pertanyaan']}: [Tidak Terjawab] Kandidat belum memberikan jawaban untuk pertanyaan ini.")
             
     if poin_jawaban:
         paragraphs.append("\n".join(poin_jawaban))
         
-    if terjawab_count >= total_pertanyaan:
-        conclusion = "Secara menyeluruh, kandidat menunjukkan artikulasi komunikasi yang jelas, relevansi kualifikasi yang kuat dengan deskripsi pekerjaan, serta kesiapan profesional untuk posisi ini."
+    # Catatan Eksplisit Kejelasan Pelafalan
+    if pelafalan_dict:
+        status_pelafalan = pelafalan_dict.get("status", "")
+        if status_pelafalan == "Pelafalan Tidak Jelas":
+            paragraphs.append("⚠️ Catatan Artikulasi: Pelafalan kandidat terdeteksi tidak jelas atau suara kurang terdengar jernih saat menjawab pertanyaan.")
+        elif status_pelafalan == "Cukup Jelas":
+            paragraphs.append("ℹ️ Catatan Artikulasi: Pelafalan kandidat cukup dapat dipahami, meskipun terdapat beberapa kata dengan artikulasi yang kurang jelas.")
+        elif status_pelafalan == "Jelas & Fasih":
+            paragraphs.append("✅ Catatan Artikulasi: Pelafalan kandidat jelas, intonasi teratur, dan artikulasi kata mudah dipahami.")
+
+    if terjawab_count >= total_pertanyaan and (not pelafalan_dict or pelafalan_dict.get("status") != "Pelafalan Tidak Jelas"):
+        conclusion = "Secara menyeluruh, kandidat menunjukkan artikulasi komunikasi yang baik, relevansi kualifikasi yang kuat dengan deskripsi pekerjaan, serta kesiapan profesional untuk posisi ini."
     else:
-        conclusion = "Disarankan untuk melakukan peninjauan lebih lanjut pada aspek pertanyaan yang belum terjawab secara lengkap saat tahapan validasi lanjutan."
+        conclusion = "Disarankan untuk melakukan peninjauan lebih lanjut pada aspek pertanyaan yang belum terjawab atau pelafalan yang kurang jelas saat tahapan seleksi lanjutan."
     paragraphs.append(conclusion)
     
     return "\n\n".join(paragraphs)
@@ -298,7 +310,9 @@ class VideoAIService:
                         segments_list.append({
                             "start": round(s.start, 2),
                             "end": round(s.end, 2),
-                            "text": clean_t
+                            "text": clean_t,
+                            "avg_logprob": getattr(s, 'avg_logprob', -0.5),
+                            "no_speech_prob": getattr(s, 'no_speech_prob', 0.0)
                         })
                 full_transcript = " ".join([s["text"] for s in segments_list])
                 wps = round(len(full_transcript.split()) / durasi_video, 2) if durasi_video > 0 else 0
@@ -333,6 +347,38 @@ class VideoAIService:
         N = len(segments_list)
         K = total_pertanyaan
 
+        # Evaluasi Pelafalan & Kejelasan Suara Secara Keseluruhan
+        avg_logprob = float(np.mean([s.get("avg_logprob", -0.5) for s in segments_list])) if segments_list else -1.0
+
+        if N == 0 or not full_transcript.strip() or full_transcript.startswith("("):
+            pelafalan_dict = {
+                "status": "Pelafalan Tidak Jelas",
+                "keterangan": "Tidak ada respon suara percakapan kandidat yang terdeteksi dalam rekaman wawancara.",
+                "kejelasan_artikulasi": "Tidak Terdeteksi",
+                "avg_logprob": -1.0
+            }
+        elif avg_logprob < -0.80 or wps < 0.8 or wps > 3.8:
+            pelafalan_dict = {
+                "status": "Pelafalan Tidak Jelas",
+                "keterangan": "Pelafalan kandidat tidak jelas atau artikulasi suara kurang dapat diidentifikasi secara optimal oleh sistem pengenalan suara.",
+                "kejelasan_artikulasi": "Kurang Jelas",
+                "avg_logprob": round(avg_logprob, 2)
+            }
+        elif avg_logprob < -0.55 or wps < 1.3 or wps > 3.2:
+            pelafalan_dict = {
+                "status": "Cukup Jelas",
+                "keterangan": "Pelafalan kandidat cukup dapat dipahami, meskipun terdapat beberapa bagian dengan artikulasi yang kurang jelas.",
+                "kejelasan_artikulasi": "Cukup Jelas",
+                "avg_logprob": round(avg_logprob, 2)
+            }
+        else:
+            pelafalan_dict = {
+                "status": "Jelas & Fasih",
+                "keterangan": "Pelafalan kandidat jelas, artikulasi kata teratur, dan intonasi mudah dipahami.",
+                "kejelasan_artikulasi": "Sangat Jelas",
+                "avg_logprob": round(avg_logprob, 2)
+            }
+
         # Jika tidak ada suara atau segmen
         if N == 0:
             analisis = []
@@ -344,18 +390,21 @@ class VideoAIService:
                     "skor_relevansi": 0,
                     "waktu_mulai": 0.0,
                     "waktu_selesai": 0.0,
-                    "ringkasan": "Kandidat tidak memberikan respon suara yang terdeteksi.",
-                    "kutipan": ""
+                    "ringkasan": "Kandidat tidak memberikan respon suara untuk pertanyaan ini.",
+                    "kutipan": "",
+                    "pelafalan": "Pelafalan Tidak Jelas",
+                    "catatan_pelafalan": "Suara tidak terdeteksi"
                 })
             return {
                 "status": "SUKSES",
                 "wps": 0.0,
                 "status_jawaban_teks": f"0 dari {total_pertanyaan} Pertanyaan Terjawab",
-                "ringkasan_jawaban": "Tidak ada respon suara kandidat yang terdeteksi dalam rekaman wawancara.",
+                "ringkasan_jawaban": "Kandidat telah mengunggah rekaman video, namun tidak terdeteksi respon suara verbal. Pelafalan suara kandidat tidak jelas.",
                 "analisis_pertanyaan": analisis,
                 "pertanyaan_terjawab_count": 0,
                 "total_pertanyaan": total_pertanyaan,
-                "full_transcript": full_transcript
+                "full_transcript": full_transcript,
+                "pelafalan": pelafalan_dict
             }
 
         if progress_callback:
@@ -406,22 +455,34 @@ class VideoAIService:
             t_start = assigned[0]["start"] if assigned else 0.0
             t_end = assigned[-1]["end"] if assigned else 0.0
             avg_sim = float(np.mean([sims[idx][k] for idx in range(b_start, b_end)])) if b_start < b_end else 0.0
+            seg_logprob = float(np.mean([s.get("avg_logprob", -0.5) for s in assigned])) if assigned else -1.0
 
-            if not raw_text or len(raw_text.split()) < 4:
+            q_unclear = (seg_logprob < -0.80) or (pelafalan_dict.get("status") == "Pelafalan Tidak Jelas")
+            q_pelafalan_label = "Pelafalan Tidak Jelas" if q_unclear else "Jelas"
+
+            word_count = len(raw_text.split())
+
+            # Verifikasi ketat: pastikan pelamar benar-benar menjawab pertanyaan
+            if not raw_text or word_count < 6 or avg_sim < 0.22:
                 status = "Tidak Terjawab"
                 skor = 0
-                ringkasan = "Kandidat tidak memberikan jawaban yang terdeteksi untuk pertanyaan ini."
-            else:
-                word_count = len(raw_text.split())
-                if word_count >= 8 or avg_sim >= 0.28:
-                    status = "Terjawab"
-                    skor = int(min(98, max(75, round(avg_sim * 60 + 50))))
-                    terjawab_count += 1
-                else:
-                    status = "Terjawab Sebagian"
-                    skor = int(min(74, max(40, round(avg_sim * 50 + 30))))
-                    terjawab_count += 1
+                ringkasan = "Kandidat belum memberikan jawaban yang memadai atau relevan dengan pertanyaan ini."
+                if q_unclear and raw_text:
+                    ringkasan += " (Pelafalan suara kandidat terdeteksi tidak jelas)."
+            elif word_count >= 10 and avg_sim >= 0.28:
+                status = "Terjawab"
+                skor = int(min(98, max(75, round(avg_sim * 60 + 50))))
+                terjawab_count += 1
                 ringkasan = _summarize_answer_indonesian(questions[k], raw_text)
+                if q_unclear:
+                    ringkasan += " (Catatan: Pelafalan suara kurang jelas)."
+            else:
+                status = "Terjawab Sebagian"
+                skor = int(min(74, max(40, round(avg_sim * 50 + 30))))
+                terjawab_count += 1
+                ringkasan = _summarize_answer_indonesian(questions[k], raw_text)
+                if q_unclear:
+                    ringkasan += " (Catatan: Pelafalan suara tidak jelas)."
 
             pertanyaan_results.append({
                 "nomor": k + 1,
@@ -431,11 +492,14 @@ class VideoAIService:
                 "waktu_mulai": t_start,
                 "waktu_selesai": t_end,
                 "ringkasan": ringkasan,
-                "kutipan": raw_text
+                "kutipan": raw_text,
+                "pelafalan": q_pelafalan_label,
+                "pelafalan_jelas": not q_unclear,
+                "catatan_pelafalan": "Pelafalan tidak jelas" if q_unclear else None
             })
 
         status_jawaban_teks = f"{terjawab_count} dari {total_pertanyaan} Pertanyaan Terjawab"
-        ringkasan_jawaban = _generate_executive_summary(pertanyaan_results, terjawab_count, total_pertanyaan)
+        ringkasan_jawaban = _generate_executive_summary(pertanyaan_results, terjawab_count, total_pertanyaan, pelafalan_dict=pelafalan_dict)
 
         return {
             "status": "SUKSES",
@@ -445,7 +509,8 @@ class VideoAIService:
             "analisis_pertanyaan": pertanyaan_results,
             "pertanyaan_terjawab_count": terjawab_count,
             "total_pertanyaan": total_pertanyaan,
-            "full_transcript": full_transcript
+            "full_transcript": full_transcript,
+            "pelafalan": pelafalan_dict
         }
 
     def analisa_video(self, video_path: str, pertanyaan_perusahaan: str = "", pertanyaan_list: list = None, progress_callback=None) -> dict:
@@ -483,8 +548,15 @@ class VideoAIService:
         wps = audio_result["wps"]
         wps_score = min(100.0, max(20.0, round((wps / 2.5) * 100, 1))) if wps > 0 else 50.0
 
+        pelafalan_info = audio_result.get("pelafalan", {})
+        is_pelafalan_unclear = (pelafalan_info.get("status") == "Pelafalan Tidak Jelas")
+
         # 2. Kalkulasi Nuansa 5 Dimensi Psikologis
-        ability_score = min(98.0, max(45.0, round(0.55 * wps_score + 0.45 * min(100.0, g_persen * 1.5 + 40.0), 1)))
+        # Jika pelafalan tidak jelas, ability_score (kemampuan bicara/artikulasi) disesuaikan lebih rendah
+        base_ability = 0.55 * wps_score + 0.45 * min(100.0, g_persen * 1.5 + 40.0)
+        if is_pelafalan_unclear:
+            base_ability = min(base_ability, 50.0)
+        ability_score = min(98.0, max(35.0, round(base_ability, 1)))
         
         transcript_len = len(audio_result.get("full_transcript", "").split())
         depth_score = min(95.0, max(50.0, 60.0 + min(35.0, transcript_len * 0.8)))
@@ -497,12 +569,35 @@ class VideoAIService:
         tempo_stability = 92.0 if (1.5 <= wps <= 3.2) else (70.0 if wps > 0 else 50.0)
         ei_score = min(98.0, max(40.0, round(0.5 * tempo_stability + 0.5 * min(100.0, h_persen + 35.0), 1)))
 
-        skor_keseluruhan = round((ability_score + intelligent_score + personality_score + attitude_score + ei_score) / 5.0, 1)
+        raw_skor = (ability_score + intelligent_score + personality_score + attitude_score + ei_score) / 5.0
 
-        if skor_keseluruhan >= 85.0: kategori = "Sangat Baik"
-        elif skor_keseluruhan >= 70.0: kategori = "Baik"
-        elif skor_keseluruhan >= 55.0: kategori = "Cukup"
-        else: kategori = "Kurang"
+        # Verifikasi keterjawaban pertanyaan:
+        # Jika kandidat tidak menjawab seluruh pertanyaan, kurangi skor proporsional
+        tot_q = audio_result.get("total_pertanyaan", 3)
+        ans_q = audio_result.get("pertanyaan_terjawab_count", 0)
+        if tot_q > 0:
+            if ans_q == 0:
+                raw_skor = min(raw_skor, 30.0)
+            else:
+                ratio = ans_q / tot_q
+                penalti_ratio = 0.35 + (0.65 * ratio)
+                raw_skor = raw_skor * penalti_ratio
+
+        # Penyesuaian jika pelafalan tidak jelas
+        if is_pelafalan_unclear:
+            raw_skor = min(raw_skor, 62.0)
+
+        skor_keseluruhan = round(raw_skor, 1)
+
+        # Kategori Fit sesuai standar baru
+        if skor_keseluruhan >= 90.0 and not is_pelafalan_unclear and ans_q == tot_q:
+            kategori = "Sangat Baik"
+        elif skor_keseluruhan >= 80.0 and not is_pelafalan_unclear and ans_q >= (tot_q - 1):
+            kategori = "Baik"
+        elif skor_keseluruhan >= 40.0:
+            kategori = "Cukup"
+        else:
+            kategori = "Kurang"
 
         menit = int(durasi_video // 60)
         detik = int(durasi_video % 60)
@@ -525,7 +620,8 @@ class VideoAIService:
                 "gerakan_kepala": min(100.0, round(h_persen, 1)),
                 "kontak_mata": min(100.0, round(e_persen, 1)),
                 "word_per_second": round(wps, 2),
-                "word_per_second_percent": round(wps_score, 1)
+                "word_per_second_percent": round(wps_score, 1),
+                "kejelasan_pelafalan": pelafalan_info.get("status", "Jelas")
             },
             "durasi_video_detik": round(durasi_video, 1),
             "durasi_formatted": durasi_formatted,
@@ -536,7 +632,8 @@ class VideoAIService:
             "analisis_pertanyaan": audio_result.get("analisis_pertanyaan", []),
             "pertanyaan_terjawab_count": audio_result.get("pertanyaan_terjawab_count", 0),
             "total_pertanyaan": audio_result.get("total_pertanyaan", 0),
-            "full_transcript": audio_result.get("full_transcript", "")
+            "full_transcript": audio_result.get("full_transcript", ""),
+            "pelafalan": pelafalan_info
         }
 
 video_ai_service = VideoAIService()

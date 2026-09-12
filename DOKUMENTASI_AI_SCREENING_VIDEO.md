@@ -101,13 +101,17 @@ Sistem screening video kini didukung oleh **4 pilar model AI** yang bekerja seca
 * **Tugas Utama**:
   1. **Ekspansi Semantik Soal**: Memperkaya setiap butir pertanyaan lowongan dengan konsep kunci terkait (pengenalan diri, pengalaman proyek, alasan/motivasi melamar).
   2. **Monotonic Dynamic Programming Alignment**: Memetakan segmen transkrip waktu ucapan kandidat secara berurutan ke butir pertanyaan lowongan yang paling sesuai.
-  3. **Verifikasi Keterjawaban Riil**:
-     * **Terjawab** (*Hijau*): Kandidat memberikan jawaban yang substansial dan relevan (disertai skor relevansi 75%–98%).
-     * **Terjawab Sebagian** (*Kuning*): Kandidat menyinggung topik secara singkat.
-     * **Tidak Terjawab** (*Merah*): Tidak ada respon ucapan yang terdeteksi untuk pertanyaan tersebut.
-  4. **Penyusunan Rangkuman Terstruktur**:
+  3. **Verifikasi Keterjawaban Riil (Ketat)**:
+     * **Terjawab** (*Hijau*): Kandidat memberikan jawaban yang substansial (minimal 10 kata) dan relevan secara semantik (`relevansi >= 28%`).
+     * **Terjawab Sebagian** (*Kuning*): Respon singkat atau hanya sebagian menyinggung topik.
+     * **Tidak Terjawab** (*Merah*): Tidak ada respon suara memadai atau sama sekali tidak relevan dengan pertanyaan yang diajukan (skor 0%).
+     * **Penalti Keterjawaban**: Jika kandidat tidak menjawab sebagian/seluruh pertanyaan, skor keseluruhan video akan terpotong secara proporsional.
+  4. **Deteksi & Pernyataan Eksplisit Pelafalan Suara**:
+     * Menganalisis token log-probability (`avg_logprob`) dari Whisper serta tempo bicara (`wps`).
+     * Jika `avg_logprob < -0.80` atau tempo bicara janggal (< 0.8 / > 3.8 kata/detik), sistem secara eksplisit menetapkan status: **`Pelafalan Tidak Jelas`** dan memberikan catatan peringatan artikulasi pada rangkuman eksekutif.
+  5. **Penyusunan Rangkuman Terstruktur**:
      * Menghasilkan intisari jawaban per soal dalam bahasa Indonesia formal.
-     * Menyusun *Executive Summary* menyeluruh untuk membantu tim rekruter HR membaca profil kandidat secara cepat.
+     * Menyusun *Executive Summary* menyeluruh dengan catatan artikulasi suara untuk membantu tim rekruter HR membaca profil kandidat secara cepat.
 
 ---
 

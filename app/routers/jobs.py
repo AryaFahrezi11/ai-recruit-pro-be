@@ -176,10 +176,17 @@ async def get_jobs(
     """Mendapatkan daftar semua lowongan kerja yang aktif dengan filter lengkap & sortir PO-fit."""
     query = (
         select(JobPosting)
+        .join(JobPosting.perusahaan)
         .options(
             selectinload(JobPosting.perusahaan),
             selectinload(JobPosting.kategori),
             defer(JobPosting.jd_embedding)
+        )
+        .where(
+            PerusahaanProfile.logo_url.isnot(None),
+            PerusahaanProfile.logo_url != "",
+            PerusahaanProfile.deskripsi.isnot(None),
+            PerusahaanProfile.deskripsi != ""
         )
     )
 
@@ -613,6 +620,62 @@ async def update_job(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Lowongan tidak ditemukan atau Anda tidak memiliki akses",
         )
+
+    # Validasi panjang deskripsi pekerjaan jika diupdate
+    if "deskripsi_pekerjaan" in update_data:
+        desc = update_data.get("deskripsi_pekerjaan")
+        if not desc or len(str(desc).strip()) < 150:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Deskripsi pekerjaan minimal 150 karakter agar AI dapat membaca dan menganalisis kualifikasi secara optimal.",
+            )
+
+    if "tanggung_jawab" in update_data:
+        tj = update_data.get("tanggung_jawab")
+        try:
+            items = json.loads(tj) if isinstance(tj, str) else tj
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, str) and len(item.strip()) < 20:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Setiap butir tanggung jawab minimal 20 karakter agar terbaca jelas oleh AI.",
+                        )
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    if "kualifikasi" in update_data:
+        kual = update_data.get("kualifikasi")
+        try:
+            items = json.loads(kual) if isinstance(kual, str) else kual
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, str) and len(item.strip()) < 20:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Setiap butir persyaratan/kualifikasi minimal 20 karakter agar terbaca jelas oleh AI.",
+                        )
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    if "video_questions_json" in update_data:
+        vq = update_data.get("video_questions_json")
+        try:
+            items = json.loads(vq) if isinstance(vq, str) else vq
+            if isinstance(items, list) and len(items) > 0:
+                if len(items) < 3:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Pertanyaan wawancara minimal 3 pertanyaan (saat ini {len(items)}).",
+                    )
+                for q in items:
+                    if isinstance(q, str) and len(q.strip()) < 15:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Setiap pertanyaan wawancara minimal 15 karakter agar pertanyaan jelas dijawab.",
+                        )
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     # Field yang boleh diupdate
     allowed_fields = [

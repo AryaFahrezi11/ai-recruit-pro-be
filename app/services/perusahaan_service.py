@@ -113,7 +113,13 @@ class PerusahaanService:
         query = (
             select(PerusahaanProfile)
             .options(selectinload(PerusahaanProfile.job_postings).defer(JobPosting.jd_embedding))
-            .where(PerusahaanProfile.is_verified == True)
+            .where(
+                PerusahaanProfile.is_verified == True,
+                PerusahaanProfile.logo_url.isnot(None),
+                PerusahaanProfile.logo_url != "",
+                PerusahaanProfile.deskripsi.isnot(None),
+                PerusahaanProfile.deskripsi != ""
+            )
         )
         
         if keyword:
@@ -166,7 +172,11 @@ class PerusahaanService:
             .where(
                 PerusahaanProfile.is_verified == True,
                 PerusahaanProfile.alamat.isnot(None),
-                PerusahaanProfile.alamat != ""
+                PerusahaanProfile.alamat != "",
+                PerusahaanProfile.logo_url.isnot(None),
+                PerusahaanProfile.logo_url != "",
+                PerusahaanProfile.deskripsi.isnot(None),
+                PerusahaanProfile.deskripsi != ""
             )
             .distinct()
             .limit(20)
@@ -186,8 +196,14 @@ class PerusahaanService:
     async def get_industries(self):
         result = await self.db.execute(
             select(PerusahaanProfile.industri)
-            .where(PerusahaanProfile.is_verified == True)
-            .where(PerusahaanProfile.industri.isnot(None))
+            .where(
+                PerusahaanProfile.is_verified == True,
+                PerusahaanProfile.industri.isnot(None),
+                PerusahaanProfile.logo_url.isnot(None),
+                PerusahaanProfile.logo_url != "",
+                PerusahaanProfile.deskripsi.isnot(None),
+                PerusahaanProfile.deskripsi != ""
+            )
             .distinct()
         )
         industries = result.scalars().all()
@@ -200,8 +216,14 @@ class PerusahaanService:
         result = await self.db.execute(
             select(PerusahaanProfile)
             .options(selectinload(PerusahaanProfile.job_postings).defer(JobPosting.jd_embedding))
-            .where(PerusahaanProfile.id == company_id)
-            .where(PerusahaanProfile.is_verified == True)
+            .where(
+                PerusahaanProfile.id == company_id,
+                PerusahaanProfile.is_verified == True,
+                PerusahaanProfile.logo_url.isnot(None),
+                PerusahaanProfile.logo_url != "",
+                PerusahaanProfile.deskripsi.isnot(None),
+                PerusahaanProfile.deskripsi != ""
+            )
         )
         comp = result.scalars().first()
         

@@ -172,9 +172,31 @@ async def update_profile(
             profile.linkedin_url = str(data["linkedin_url"]) if not isinstance(data["linkedin_url"], str) else data["linkedin_url"]
         if "portfolio_url" in data and data["portfolio_url"] is not None:
             profile.portfolio_url = str(data["portfolio_url"])
-        if "ringkasan_diri" in data and data["ringkasan_diri"] is not None: profile.ringkasan_diri = data["ringkasan_diri"]
+        if "ringkasan_diri" in data and data["ringkasan_diri"] is not None:
+            summary_val = str(data["ringkasan_diri"]).strip()
+            if len(summary_val) > 0 and len(summary_val) < 150:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Ringkasan profesional minimal 150 karakter agar AI dapat membaca profil CV dan menganalisis kecocokan secara optimal."
+                )
+            profile.ringkasan_diri = summary_val
         if "pengalaman_kerja" in data and data["pengalaman_kerja"] is not None:
-            profile.pengalaman_kerja = json.dumps(data["pengalaman_kerja"]) if isinstance(data["pengalaman_kerja"], (list, dict)) else str(data["pengalaman_kerja"])
+            exp_val = data["pengalaman_kerja"]
+            try:
+                exp_list = json.loads(exp_val) if isinstance(exp_val, str) else exp_val
+                if isinstance(exp_list, list):
+                    for idx, exp in enumerate(exp_list):
+                        if isinstance(exp, dict):
+                            desc = str(exp.get("description", "")).strip()
+                            if exp.get("company") or exp.get("role") or desc:
+                                if len(desc) < 30:
+                                    raise HTTPException(
+                                        status_code=status.HTTP_400_BAD_REQUEST,
+                                        detail=f"Deskripsi Pengalaman #{idx + 1} minimal 30 karakter agar AI dapat menganalisis kompetensi secara optimal."
+                                    )
+            except (json.JSONDecodeError, TypeError):
+                pass
+            profile.pengalaman_kerja = json.dumps(exp_val) if isinstance(exp_val, (list, dict)) else str(exp_val)
         if "riwayat_pendidikan" in data and data["riwayat_pendidikan"] is not None:
             profile.riwayat_pendidikan = json.dumps(data["riwayat_pendidikan"]) if isinstance(data["riwayat_pendidikan"], (list, dict)) else str(data["riwayat_pendidikan"])
         if "keahlian" in data and data["keahlian"] is not None: profile.keahlian = data["keahlian"]

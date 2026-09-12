@@ -240,6 +240,11 @@ async def get_applications(
                     "interview_threshold": float(app.job.interview_threshold) if app.job.interview_threshold else 40,
                     "video_questions_json": app.job.video_questions_json,
                     "video_questions": safe_json(app.job.video_questions_json),
+                    "perusahaan": {
+                        "nama_perusahaan": perusahaan.nama_perusahaan,
+                        "logo_url": perusahaan.logo_url,
+                    },
+                    "nama_perusahaan": perusahaan.nama_perusahaan,
                 }
             if app.cv_analysis:
                 app_dict["analisis_cv"] = {
@@ -309,6 +314,7 @@ async def run_ai_screening_background(application_id: str, embedding_service):
                     jd_embedding=jd_embedding,
                     threshold=threshold,
                     cv_text=cv_text,
+                    jd_text=jd_text,
                     ai_keywords=ai_keywords,
                     cv_education=cv_doc.pendidikan_tertinggi,
                     job_education=job.pendidikan_min
@@ -621,6 +627,7 @@ async def analyze_application_cv(
             jd_embedding=jd_embedding,
             threshold=threshold,
             cv_text=cv_text,
+            jd_text=jd_text,
             ai_keywords=ai_keywords,
             cv_education=app_record.cv_document.pendidikan_tertinggi,
             job_education=job.pendidikan_min
@@ -1143,14 +1150,33 @@ async def persistent_video_worker():
             print(f"[ERROR PERSISTENT WORKER LOOP] {e}")
             await asyncio.sleep(2.0)
 
+MAX_INTERVIEW_VIDEO_MB = 100
+MAX_INTERVIEW_VIDEO_BYTES = MAX_INTERVIEW_VIDEO_MB * 1024 * 1024
+
 @router.post("/{application_id}/upload-video")
 async def upload_interview_video(
     application_id: str,
     video: UploadFile = File(...),
     db: AsyncSession = Depends(get_db)
 ):
-    if not video.filename.endswith(".mp4"):
+    if not (video.filename or "").lower().endswith(".mp4"):
         raise HTTPException(status_code=400, detail="Hanya format .mp4 yang diizinkan.")
+
+    # Validasi batas ukuran file (standar 100 MB)
+    try:
+        video.file.seek(0, 2)
+        file_size = video.file.tell()
+        video.file.seek(0)
+        if file_size > MAX_INTERVIEW_VIDEO_BYTES:
+            size_mb = file_size / (1024 * 1024)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ukuran video terlalu besar ({size_mb:.1f} MB). Batas maksimal ukuran file video adalah {MAX_INTERVIEW_VIDEO_MB} MB."
+            )
+    except HTTPException:
+        raise
+    except Exception as err:
+        print(f"[WARN] Gagal mengecek ukuran video: {err}")
 
     try:
         result = await db.execute(select(Application).where(Application.id == application_id))

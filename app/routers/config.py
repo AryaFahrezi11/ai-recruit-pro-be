@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import json
@@ -9,7 +9,7 @@ router = APIRouter()
 
 @router.get("/public")
 async def get_public_config(db: AsyncSession = Depends(get_db)):
-    keys = ["maintenance_mode", "seo_title", "seo_description", "admin_email", "smtp_from", "smtp_user"]
+    keys = ["maintenance_mode", "seo_title", "seo_description", "admin_email", "smtp_from", "smtp_user", "support_whatsapp", "lokasi_kantor_pusat"]
     result = await db.execute(select(SystemSetting).where(SystemSetting.key.in_(keys)))
     settings = result.scalars().all()
     
@@ -36,5 +36,7 @@ async def get_public_config(db: AsyncSession = Depends(get_db)):
     # Ambil email admin terdaftar dari system_settings
     admin_email = parsed.get("admin_email") or parsed.get("smtp_from") or parsed.get("smtp_user") or ""
     config["admin_email"] = admin_email
+    config["support_whatsapp"] = parsed.get("support_whatsapp") or ""
+    config["lokasi_kantor_pusat"] = parsed.get("lokasi_kantor_pusat") or ""
             
     return config

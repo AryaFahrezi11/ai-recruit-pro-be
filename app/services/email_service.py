@@ -137,9 +137,13 @@ async def send_rendered_email(db: AsyncSession, recipient: str, subject: str, bo
         body=body
     )
 
-async def send_company_approved_email(db: AsyncSession, company_name: str, recipient_email: str, login_url: str = "http://localhost:3000/login"):
+async def send_company_approved_email(db: AsyncSession, company_name: str, recipient_email: str, login_url: str = None):
     """Mengirim email notifikasi bahwa akun perusahaan telah diverifikasi."""
     settings = await get_all_settings_dict(db)
+    base_url = settings.get("public_domain_url") or os.getenv("FRONTEND_URL", "http://localhost:3000")
+    if not login_url:
+        login_url = f"{base_url.rstrip('/')}/login"
+
     subject_tpl = settings.get("email_tpl_company_approved_subject") or DEFAULT_TEMPLATES["email_tpl_company_approved_subject"]
     body_tpl = settings.get("email_tpl_company_approved_body") or DEFAULT_TEMPLATES["email_tpl_company_approved_body"]
 
@@ -148,9 +152,13 @@ async def send_company_approved_email(db: AsyncSession, company_name: str, recip
 
     return await send_rendered_email(db, recipient_email, subject, body)
 
-async def send_company_rejected_email(db: AsyncSession, company_name: str, recipient_email: str, reason: str, revisi_url: str = "http://localhost:3000/login"):
+async def send_company_rejected_email(db: AsyncSession, company_name: str, recipient_email: str, reason: str, revisi_url: str = None):
     """Mengirim email notifikasi bahwa verifikasi perusahaan ditolak beserta alasannya."""
     settings = await get_all_settings_dict(db)
+    base_url = settings.get("public_domain_url") or os.getenv("FRONTEND_URL", "http://localhost:3000")
+    if not revisi_url:
+        revisi_url = f"{base_url.rstrip('/')}/login"
+
     subject_tpl = settings.get("email_tpl_company_rejected_subject") or DEFAULT_TEMPLATES["email_tpl_company_rejected_subject"]
     body_tpl = settings.get("email_tpl_company_rejected_body") or DEFAULT_TEMPLATES["email_tpl_company_rejected_body"]
 

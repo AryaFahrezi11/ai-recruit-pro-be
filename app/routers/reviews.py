@@ -59,16 +59,7 @@ async def submit_review(
             name = prof.nama_perusahaan
             role_desc = "Perusahaan / HR"
 
-    # Avoid duplicate review for the same event
-    if review_data.context_event:
-        existing = await db.execute(
-            select(PlatformReview).where(
-                PlatformReview.user_id == user_id,
-                PlatformReview.context_event == review_data.context_event
-            )
-        )
-        if existing.scalars().first():
-            raise HTTPException(status_code=400, detail="Anda sudah memberikan ulasan untuk tahap ini.")
+
 
     new_review = PlatformReview(
         user_id=user_id,

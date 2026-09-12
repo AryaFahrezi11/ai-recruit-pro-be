@@ -42,6 +42,36 @@ DEFAULT_TEMPLATES: Dict[str, str] = {
         "Salam hormat,\n"
         "Tim Verifikasi AI Recruit Pro"
     ),
+    "email_tpl_interview_reminder_subject": "PENGINGAT: Jadwal Wawancara Anda Hari Ini - {nama_perusahaan}",
+    "email_tpl_interview_reminder_body": (
+        "Halo {nama_kandidat},\n\n"
+        "Ini adalah pengingat otomatis bahwa Anda memiliki jadwal Wawancara Lanjutan HARI INI bersama tim {nama_perusahaan}.\n\n"
+        "Waktu: {waktu_wawancara} WIB\n"
+        "Lokasi/Tautan: {lokasi_wawancara}\n\n"
+        "Mohon pastikan Anda hadir atau bergabung tepat waktu. Jika wawancara dilakukan secara online, pastikan koneksi internet dan perangkat Anda berfungsi dengan baik.\n\n"
+        "Semoga sukses!\n"
+        "Tim AI Recruit Pro"
+    ),
+    "email_tpl_interview_ping_subject": "PENTING: Wawancara Anda Sudah Dimulai - {nama_perusahaan}",
+    "email_tpl_interview_ping_body": (
+        "Halo {nama_kandidat},\n\n"
+        "Tim {nama_perusahaan} sudah menunggu Anda untuk wawancara lanjutan.\n\n"
+        "Wawancara telah dijadwalkan pada {waktu_wawancara} WIB. Mohon segera bergabung ke tautan atau datang ke lokasi berikut:\n"
+        "{lokasi_wawancara}\n\n"
+        "Jika Anda mengalami kendala teknis, mohon segera informasikan ke pihak perusahaan.\n\n"
+        "Salam,\n"
+        "Tim AI Recruit Pro"
+    ),
+    "email_tpl_company_interview_reminder_subject": "PENGINGAT: Jadwal Wawancara Kandidat Hari Ini - {nama_kandidat}",
+    "email_tpl_company_interview_reminder_body": (
+        "Halo Tim {nama_perusahaan},\n\n"
+        "Ini adalah pengingat otomatis bahwa HARI INI Anda memiliki jadwal wawancara dengan kandidat {nama_kandidat} untuk posisi {posisi}.\n\n"
+        "Waktu: {waktu_wawancara} WIB\n"
+        "Tautan/Lokasi: {lokasi_wawancara}\n\n"
+        "Mohon pastikan perwakilan HR atau User Anda bersiap dan hadir tepat waktu. Anda dapat melihat detail kandidat melalui dashboard perusahaan di AI Recruit Pro.\n\n"
+        "Salam Sukses,\n"
+        "Tim AI Recruit Pro"
+    )
 }
 
 async def get_all_settings_dict(db: AsyncSession) -> Dict[str, Any]:
@@ -137,5 +167,39 @@ async def send_otp_email_templated(db: AsyncSession, recipient_email: str, otp_c
 
     subject = subject_tpl.replace("{otp_code}", otp_code).replace("{nama_penerima}", recipient_name).replace("{kadaluarsa_menit}", str(expiry_minutes))
     body = body_tpl.replace("{otp_code}", otp_code).replace("{nama_penerima}", recipient_name).replace("{kadaluarsa_menit}", str(expiry_minutes))
+
+    return await send_rendered_email(db, recipient_email, subject, body)
+
+async def send_interview_reminder_email(db: AsyncSession, recipient_email: str, candidate_name: str, company_name: str, time: str, location: str):
+    """Mengirim email pengingat wawancara hari ini."""
+    settings = await get_all_settings_dict(db)
+    subject_tpl = settings.get("email_tpl_interview_reminder_subject") or DEFAULT_TEMPLATES["email_tpl_interview_reminder_subject"]
+    body_tpl = settings.get("email_tpl_interview_reminder_body") or DEFAULT_TEMPLATES["email_tpl_interview_reminder_body"]
+
+    subject = subject_tpl.replace("{nama_kandidat}", candidate_name).replace("{nama_perusahaan}", company_name)
+    body = body_tpl.replace("{nama_kandidat}", candidate_name).replace("{nama_perusahaan}", company_name).replace("{waktu_wawancara}", time).replace("{lokasi_wawancara}", location)
+
+    return await send_rendered_email(db, recipient_email, subject, body)
+
+async def send_interview_ping_email(db: AsyncSession, recipient_email: str, candidate_name: str, company_name: str, time: str, location: str):
+    """Mengirim email teguran (ping) jika pelamar terlambat hadir wawancara."""
+    settings = await get_all_settings_dict(db)
+    subject_tpl = settings.get("email_tpl_interview_ping_subject") or DEFAULT_TEMPLATES["email_tpl_interview_ping_subject"]
+    body_tpl = settings.get("email_tpl_interview_ping_body") or DEFAULT_TEMPLATES["email_tpl_interview_ping_body"]
+
+    subject = subject_tpl.replace("{nama_kandidat}", candidate_name).replace("{nama_perusahaan}", company_name)
+    body = body_tpl.replace("{nama_kandidat}", candidate_name).replace("{nama_perusahaan}", company_name).replace("{waktu_wawancara}", time).replace("{lokasi_wawancara}", location)
+
+    return await send_rendered_email(db, recipient_email, subject, body)
+    return await send_rendered_email(db, recipient_email, subject, body)
+
+async def send_company_interview_reminder_email(db: AsyncSession, recipient_email: str, company_name: str, candidate_name: str, position: str, time: str, location: str):
+    """Mengirim email pengingat wawancara hari ini kepada perusahaan/HR."""
+    settings = await get_all_settings_dict(db)
+    subject_tpl = settings.get("email_tpl_company_interview_reminder_subject") or DEFAULT_TEMPLATES["email_tpl_company_interview_reminder_subject"]
+    body_tpl = settings.get("email_tpl_company_interview_reminder_body") or DEFAULT_TEMPLATES["email_tpl_company_interview_reminder_body"]
+
+    subject = subject_tpl.replace("{nama_kandidat}", candidate_name).replace("{nama_perusahaan}", company_name).replace("{posisi}", position)
+    body = body_tpl.replace("{nama_kandidat}", candidate_name).replace("{nama_perusahaan}", company_name).replace("{posisi}", position).replace("{waktu_wawancara}", time).replace("{lokasi_wawancara}", location)
 
     return await send_rendered_email(db, recipient_email, subject, body)

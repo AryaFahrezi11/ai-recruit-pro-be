@@ -38,6 +38,7 @@ from app.models.application import CVDocument, Application
 from app.models.video_task import VideoAnalysisJob
 from app.models.analysis import CVAnalysisResult
 from app.services.cv_analysis_service import CVAnalysisService
+from app.services.email_service import send_interview_ping_email, send_interview_reminder_email, send_company_interview_reminder_email
 from app.utils.pdf_extractor import clean_text
 from app.schemas.application import ApplicationCreate
 
@@ -862,6 +863,13 @@ async def update_application_status(
     if payload.interview_details is not None:
         app_record.interview_details = payload.interview_details
         
+    # Pengurangan Kuota Lowongan jika status hired
+    if payload.status == "hired":
+        if app_record.job and app_record.job.openings_count and app_record.job.openings_count > 0:
+            app_record.job.openings_count -= 1
+            if app_record.job.openings_count == 0:
+                app_record.job.status = "closed"
+
     await db.commit()
     
     # Pengiriman email notifikasi otomatis ke pelamar berdasarkan status baru
@@ -1328,3 +1336,132 @@ async def delete_application(
     await db.delete(app_record)
     await db.commit()
     return {"message": "Lamaran berhasil dihapus dari arsip."}
+
+
+@router.post("/{application_id}/ping-interview", status_code=status.HTTP_200_OK)
+async def ping_interview(
+    application_id: str,
+    current_user: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Mengirimkan peringatan/notifikasi kepada pelamar bahwa wawancara sudah dimulai.
+    Hanya bisa diakses oleh perusahaan (HR).
+    """
+    if current_user.get("role") != "perusahaan":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya perusahaan yang dapat mengirimkan peringatan wawancara."
+        )
+        
+    result = await db.execute(select(Application).where(Application.id == application_id))
+    app_record = result.scalars().first()
+
+    if not app_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lamaran tidak ditemukan"
+        )
+        
+    if app_record.status not in ["interview_lanjutan", "interview_scheduled", "interview"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Kandidat tidak sedang dalam tahap wawancara."
+        )
+        
+    # Ambil data dari relasi
+    await db.refresh(app_record, ["pelamar", "job"])
+    pelamar = app_record.pelamar
+    job = app_record.job
+    
+    if pelamar:
+        await db.refresh(pelamar, ["user"])
+    if job:
+        await db.refresh(job, ["perusahaan"])
+    
+    intv = app_record.interview_details or {}
+    
+    if pelamar and job and intv:
+        company_name = job.perusahaan.nama_perusahaan if job.perusahaan else "Perusahaan Anda"
+        recipient_email = pelamar.user.email if pelamar.user else None
+        
+        if recipient_email:
+            await send_interview_ping_email(
+                db=db,
+                recipient_email=recipient_email,
+                candidate_name=pelamar.nama_lengkap,
+                company_name=company_name,
+                time=intv.get("waktu", "-"),
+                location=intv.get("lokasi_atau_link", "-")
+            )
+    
+    return {
+        "message": "Peringatan berhasil dikirim ke pelamar via Email & Sistem."
+    }
+
+from datetime import date
+@router.get("/cron/daily-reminders", status_code=status.HTTP_200_OK)
+async def trigger_daily_reminders(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Endpoint (cron-friendly) untuk mengirim email pengingat bagi semua wawancara HARI INI.
+    Bisa dipanggil oleh sistem eksternal (mis. Vercel Cron, GitHub Actions, dsb).
+    """
+    today_str = date.today().isoformat()
+    
+    # Ambil semua lamaran yang dalam tahap interview dan interview_details.tanggal == hari ini
+    # Karena interview_details adalah JSONB/JSON, di SQLite atau Postgres cara filternya beda-beda.
+    # Agar aman, kita fetch semua yang statusnya interview lalu filter di python.
+    query = await db.execute(
+        select(Application)
+        .where(Application.status.in_(["interview_lanjutan", "interview_scheduled", "interview"]))
+        .options(
+            selectinload(Application.pelamar).selectinload(PelamarProfile.user), 
+            selectinload(Application.job).selectinload(JobPosting.perusahaan).selectinload(PerusahaanProfile.user)
+        )
+    )
+    records = query.scalars().all()
+    
+    sent_count = 0
+    for app in records:
+        intv = app.interview_details or {}
+        if intv.get("tanggal") == today_str:
+            pelamar = app.pelamar
+            job = app.job
+            if pelamar and job:
+                company_name = job.perusahaan.nama_perusahaan if job.perusahaan else "Perusahaan Anda"
+                recipient_email = pelamar.user.email if pelamar.user else None
+                
+                if recipient_email:
+                    # Mengirim email ke pelamar
+                    background_tasks.add_task(
+                        send_interview_reminder_email,
+                        db=db,
+                        recipient_email=recipient_email,
+                        candidate_name=pelamar.nama_lengkap,
+                        company_name=company_name,
+                        time=intv.get("waktu", "-"),
+                        location=intv.get("lokasi_atau_link", "-")
+                    )
+
+                
+                # Mengirim email ke perusahaan
+                if job.perusahaan and job.perusahaan.user:
+                    background_tasks.add_task(
+                        send_company_interview_reminder_email,
+                        db=db,
+                        recipient_email=job.perusahaan.user.email,
+                        company_name=job.perusahaan.nama_perusahaan or "Perusahaan Anda",
+                        candidate_name=pelamar.nama_lengkap,
+                        position=job.judul_posisi or "Posisi",
+                        time=intv.get("waktu", "-"),
+                        location=intv.get("lokasi_atau_link", "-")
+                    )
+                
+                sent_count += 1
+
+    return {
+        "message": f"Berhasil menjadwalkan {sent_count} pengingat email wawancara hari ini."
+    }

@@ -687,3 +687,31 @@ async def update_job_status(
     service = JobService(db)
     return await service.update_job_status(current_user["sub"], job_id, status_data.status, is_admin=is_admin)
 
+@router.get("/cron/daily-cleanup", status_code=status.HTTP_200_OK)
+async def daily_jobs_cleanup(db: AsyncSession = Depends(get_db)):
+    """
+    Endpoint (cron-friendly) untuk menutup lowongan yang tanggal_tutup-nya sudah lewat.
+    """
+    from datetime import date
+    from sqlalchemy import select
+    
+    today = date.today()
+    
+    # Cari lowongan yang masih aktif tapi tanggal_tutup < hari ini
+    result = await db.execute(
+        select(JobPosting).where(
+            JobPosting.status == "active",
+            JobPosting.tanggal_tutup < today
+        )
+    )
+    jobs_to_close = result.scalars().all()
+    
+    count = 0
+    for job in jobs_to_close:
+        job.status = "closed"
+        count += 1
+        
+    if count > 0:
+        await db.commit()
+        
+    return {"status": "success", "message": f"{count} lowongan telah otomatis ditutup karena melewati batas waktu."}

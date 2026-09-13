@@ -2,7 +2,7 @@
 🔐 Auth Router
 Endpoint: POST /api/auth/register, POST /api/auth/verify-otp, POST /api/auth/resend-otp, POST /api/auth/login
 """
-from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.user import (
     RegisterRequest, LoginRequest, TokenResponse, RegisterResponse,

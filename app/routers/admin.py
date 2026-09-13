@@ -1,23 +1,23 @@
-from app.services.email_service import DEFAULT_TEMPLATES, send_rendered_email
-from sqlalchemy import select, func
-from app.models.application import CVDocument
-from app.models.analysis import CVAnalysisResult
 import time
 import psutil
-from app.models.job import JobPosting
-from app.models.application import Application
 from datetime import datetime, timedelta, date
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
 
 from app.core.database import get_db
 from app.core.security import verify_token
-from app.services.admin_service import AdminService
-from pydantic import BaseModel
-from app.schemas.admin import AdminUserCreateRequest, AdminUserUpdateRequest
-from app.services.audit_service import log_audit
+from app.models.job import JobPosting
+from app.models.application import Application, CVDocument
+from app.models.analysis import CVAnalysisResult
 from app.models.audit import AuditLog
+from app.schemas.admin import AdminUserCreateRequest, AdminUserUpdateRequest
+from app.services.admin_service import AdminService
+from app.services.audit_service import log_audit
+from app.services.email_service import DEFAULT_TEMPLATES, send_rendered_email
 
 router = APIRouter()
 
@@ -395,6 +395,10 @@ async def update_system_settings(data: dict = Body(...), db: AsyncSession = Depe
             db.add(new_setting)
             
     await db.commit()
+    
+    # Invalidate public config cache
+    from app.routers.config import invalidate_config_cache
+    invalidate_config_cache()
     
     # Audit Log
     admin_id = current_user.get("id") if isinstance(current_user, dict) else current_user.id

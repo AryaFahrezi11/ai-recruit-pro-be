@@ -1,5 +1,5 @@
-from pydantic import BaseModel, HttpUrl
-from typing import Optional, Dict
+from pydantic import BaseModel
+from typing import Optional
 
 class PerusahaanSettingsUpdate(BaseModel):
     # Profile

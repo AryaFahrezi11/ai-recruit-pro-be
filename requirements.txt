@@ -5,12 +5,16 @@
 # --- Framework & ASGI Server ---
 fastapi
 uvicorn[standard]
+watchfiles
 
-# --- Database (PostgreSQL / Supabase / SQLite) ---
+# --- Database (PostgreSQL / Supabase / SQLite / MySQL) ---
 sqlalchemy
 asyncpg
 psycopg2-binary
 aiosqlite
+aiomysql
+cryptography
+greenlet
 
 # --- Auth & Security ---
 python-jose[cryptography]
@@ -20,33 +24,39 @@ python-multipart
 
 # --- Cloud Services & Media Storage ---
 supabase
+httpx
 cloudinary
 
 # --- Computer Vision & Video AI ---
-# OpenCV untuk manipulasi frame video
+# OpenCV untuk manipulasi & ekstraksi frame video
 opencv-python
 opencv-python-headless
 # MediaPipe untuk pelacakan 478 landmark wajah, iris mata, dan kontak mata
 mediapipe
-# YOLOv8 untuk estimasi pose tubuh & deteksi gestur tangan
+# YOLOv8 & PyTorch Vision untuk estimasi pose tubuh & deteksi gestur
 ultralytics
-# MoviePy untuk ekstraksi audio dari berkas video
+torchvision
+# MoviePy & ImageIO untuk ekstraksi dan pemrosesan audio dari video
 moviepy>=2.0.0
-# NumPy versi 2.0+ untuk stabilitas float math pada Python 3.12+
+imageio
+imageio-ffmpeg
+# NumPy versi 2.0+ untuk stabilitas komputasi float math
 numpy>=2.0.0
 
 # --- Audio AI & Speech-to-Text ---
 # Faster-Whisper untuk transkripsi ucapan bahasa Indonesia bersegmen waktu
 faster-whisper
+sounddevice
 
 # --- NLP & Semantic Evaluation (CV Screening & Video Q&A) ---
-# SBERT Multilingual untuk representasi embedding & pencocokan semantik jawaban soal
+# SBERT Multilingual untuk representasi embedding & pencocokan semantik jawaban
 sentence-transformers
-# Scikit-learn untuk perhitungan cosine similarity
+# Scikit-learn & SciPy untuk perhitungan cosine similarity dan komputasi metrik
 scikit-learn
-# PyTorch untuk akselerasi neural network
+scipy
+# PyTorch untuk akselerasi neural network & inferensi deep learning
 torch
-# Transformers untuk tokenizers dan model machine learning pendukung
+# Transformers & Hugging Face Hub untuk tokenizers dan model machine learning pendukung
 transformers
 huggingface-hub
 
@@ -58,6 +68,7 @@ PyPDF2
 
 # --- Configuration & System Utilities ---
 pydantic[email]
+email-validator
 pydantic-settings
 python-dotenv
 psutil

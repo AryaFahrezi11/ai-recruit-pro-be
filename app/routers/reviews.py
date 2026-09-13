@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import desc
@@ -9,7 +9,7 @@ import datetime
 from app.core.database import get_db
 from app.core.security import verify_token
 from app.models.review import PlatformReview
-from app.models.user import User, PelamarProfile, PerusahaanProfile
+from app.models.user import PelamarProfile, PerusahaanProfile
 
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
 

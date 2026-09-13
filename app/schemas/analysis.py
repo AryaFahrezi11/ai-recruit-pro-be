@@ -2,7 +2,6 @@
 📋 Schemas untuk AI Analysis
 """
 from pydantic import BaseModel
-from datetime import datetime
 
 
 # ============================================

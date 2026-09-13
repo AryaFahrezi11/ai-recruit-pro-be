@@ -3,20 +3,22 @@
 Endpoint: CRUD /api/jobs
 """
 import json
-from datetime import datetime
+import re
 from typing import List, Optional
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
-from sqlalchemy.orm import selectinload, defer
+from sqlalchemy.orm import selectinload, defer, joinedload
 from starlette.concurrency import run_in_threadpool
+from datetime import datetime, date
 
 from app.core.database import get_db
 from app.core.security import verify_token, verify_token_optional
+from app.models.job import JobPosting, JobCategory
 from app.models.user import PerusahaanProfile, PelamarProfile
-from app.models import JobPosting
-import re
+from app.schemas.job import JobPostingCreate, JobPostingResponse
+from app.services.job_service import JobService
 
 def calculate_pofit_score(job: JobPosting, user_profile: Optional[PelamarProfile]) -> tuple[int, str, bool]:
     """
@@ -84,10 +86,6 @@ def calculate_pofit_score(job: JobPosting, user_profile: Optional[PelamarProfile
 
     return final_score, reason, True
 
-
-from app.models.job import JobPosting, JobCategory
-from app.schemas.job import JobPostingCreate, JobPostingResponse
-from app.services.job_service import JobService
 
 router = APIRouter()
 
@@ -178,8 +176,8 @@ async def get_jobs(
         select(JobPosting)
         .join(JobPosting.perusahaan)
         .options(
-            selectinload(JobPosting.perusahaan),
-            selectinload(JobPosting.kategori),
+            joinedload(JobPosting.perusahaan),
+            joinedload(JobPosting.kategori),
             defer(JobPosting.jd_embedding)
         )
         .where(
@@ -268,7 +266,7 @@ async def get_jobs(
     query = query.offset(offset).limit(limit)
 
     result = await db.execute(query)
-    jobs = result.scalars().all()
+    jobs = result.unique().scalars().all()
 
     # Ambil user profile jika token ada
     token_payload = verify_token_optional(request)

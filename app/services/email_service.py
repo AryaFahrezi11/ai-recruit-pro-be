@@ -167,16 +167,6 @@ async def send_company_rejected_email(db: AsyncSession, company_name: str, recip
 
     return await send_rendered_email(db, recipient_email, subject, body)
 
-async def send_otp_email_templated(db: AsyncSession, recipient_email: str, otp_code: str, recipient_name: str = "Pengguna", expiry_minutes: int = 10):
-    """Mengirim email OTP menggunakan template dari pengaturan sistem."""
-    settings = await get_all_settings_dict(db)
-    subject_tpl = settings.get("email_tpl_otp_subject") or DEFAULT_TEMPLATES["email_tpl_otp_subject"]
-    body_tpl = settings.get("email_tpl_otp_body") or DEFAULT_TEMPLATES["email_tpl_otp_body"]
-
-    subject = subject_tpl.replace("{otp_code}", otp_code).replace("{nama_penerima}", recipient_name).replace("{kadaluarsa_menit}", str(expiry_minutes))
-    body = body_tpl.replace("{otp_code}", otp_code).replace("{nama_penerima}", recipient_name).replace("{kadaluarsa_menit}", str(expiry_minutes))
-
-    return await send_rendered_email(db, recipient_email, subject, body)
 
 async def send_interview_reminder_email(db: AsyncSession, recipient_email: str, candidate_name: str, company_name: str, time: str, location: str):
     """Mengirim email pengingat wawancara hari ini."""
@@ -198,7 +188,6 @@ async def send_interview_ping_email(db: AsyncSession, recipient_email: str, cand
     subject = subject_tpl.replace("{nama_kandidat}", candidate_name).replace("{nama_perusahaan}", company_name)
     body = body_tpl.replace("{nama_kandidat}", candidate_name).replace("{nama_perusahaan}", company_name).replace("{waktu_wawancara}", time).replace("{lokasi_wawancara}", location)
 
-    return await send_rendered_email(db, recipient_email, subject, body)
     return await send_rendered_email(db, recipient_email, subject, body)
 
 async def send_company_interview_reminder_email(db: AsyncSession, recipient_email: str, company_name: str, candidate_name: str, position: str, time: str, location: str):

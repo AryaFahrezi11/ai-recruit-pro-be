@@ -1,5 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Integer, Numeric
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Integer, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -44,9 +43,9 @@ class Application(Base):
     status = Column(String(20), default="dikirim", index=True)
     catatan_pelamar = Column(Text)
     video_url = Column(String(500), nullable=True)
-    ai_result = Column(JSONB, nullable=True)
+    ai_result = Column(JSON, nullable=True)
     catatan_perusahaan = Column(Text, nullable=True)
-    interview_details = Column(JSONB, nullable=True)
+    interview_details = Column(JSON, nullable=True)
     applied_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

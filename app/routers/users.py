@@ -4,12 +4,11 @@ Endpoint: GET /api/users/profile, PUT /api/users/profile, POST /api/users/cv/upl
 """
 from starlette.concurrency import run_in_threadpool
 from app.utils.pdf_extractor import clean_text
-from fastapi import APIRouter, Body, Depends, HTTPException, status, UploadFile, File, Form, Request
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
-from typing import Optional
 import os
 import uuid
 import shutil
@@ -19,7 +18,6 @@ from app.core.database import get_db
 from app.core.security import verify_token
 from app.models.user import User, PelamarProfile, PerusahaanProfile, KampusProfile
 from app.models.application import CVDocument
-from app.schemas.user import PelamarProfileUpdate, PerusahaanProfileUpdate
 
 router = APIRouter()
 

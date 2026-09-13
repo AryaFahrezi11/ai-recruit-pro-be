@@ -3,7 +3,6 @@
 """
 import re
 from pydantic import BaseModel, EmailStr, field_validator
-from datetime import datetime
 
 
 # ============================================
@@ -97,15 +96,6 @@ class TokenResponse(BaseModel):
 # ============================================
 # USER PROFILE
 # ============================================
-class UserResponse(BaseModel):
-    id: str
-    email: str
-    role: str
-    is_active: bool
-    created_at: datetime | None = None
-
-    class Config:
-        from_attributes = True
 
 
 class PelamarProfileUpdate(BaseModel):

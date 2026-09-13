@@ -3,24 +3,29 @@
 """
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
-
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 from app.core.config import settings
 
-# Buat engine koneksi database
-# Development: SQLite (tanpa install apapun)
-# Production: Ganti DATABASE_URL di .env ke PostgreSQL
-from sqlalchemy.pool import NullPool
+is_pg = settings.DATABASE_URL.startswith("postgresql")
+is_mysql = settings.DATABASE_URL.startswith("mysql")
 
 engine_kwargs = {
     "echo": False,
-    "connect_args": {
-        "statement_cache_size": 0,
-        "prepared_statement_cache_size": 0,
-    },
 }
 
-if settings.DATABASE_URL.startswith("postgresql"):
-    engine_kwargs["poolclass"] = NullPool
+if is_pg:
+    engine_kwargs["connect_args"] = {
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    }
+
+if is_pg or is_mysql:
+    engine_kwargs["poolclass"] = AsyncAdaptedQueuePool
+    engine_kwargs["pool_size"] = 10
+    engine_kwargs["max_overflow"] = 20
+    engine_kwargs["pool_recycle"] = 300
+    engine_kwargs["pool_pre_ping"] = True
+    engine_kwargs["pool_timeout"] = 30
 
 engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
 

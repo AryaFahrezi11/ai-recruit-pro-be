@@ -1,14 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 import os
 import uuid
 import shutil
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
 from app.core.database import get_db
 from app.core.security import verify_token
-from app.schemas.perusahaan import PerusahaanSettingsUpdate
-from app.services.perusahaan_service import PerusahaanService
 from app.models.user import PerusahaanProfile
+from app.schemas.perusahaan import PerusahaanSettingsUpdate
+from app.services.email_service import send_rendered_email
+from app.services.perusahaan_service import PerusahaanService
 
 router = APIRouter()
 
@@ -56,9 +60,6 @@ async def upload_company_logo(file: UploadFile = File(...), current_user: dict =
     
     return {"status": "success", "logo_url": logo_url}
 
-
-from typing import Optional
-
 @router.get("/verified")
 async def get_verified_companies_public(
     keyword: Optional[str] = None,
@@ -87,10 +88,6 @@ async def get_company_profile(company_id: str, db: AsyncSession = Depends(get_db
     """Mendapatkan profil publik perusahaan beserta loker aktifnya."""
     service = PerusahaanService(db)
     return await service.get_company_profile(company_id)
-
-
-from fastapi import Body
-from app.services.email_service import send_rendered_email
 
 @router.post("/settings/test-email")
 async def test_perusahaan_email(

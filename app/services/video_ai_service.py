@@ -1,10 +1,8 @@
 import cv2
 import numpy as np
 import time
-import json
 import urllib.request
 import os
-import torch
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
@@ -14,7 +12,6 @@ from ultralytics import YOLO
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
-import concurrent.futures
 
 # ==========================================================
 # Modul Pembantu Pemahaman & Analisis Tanya-Jawab Wawancara

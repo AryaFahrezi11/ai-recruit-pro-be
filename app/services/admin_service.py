@@ -5,8 +5,8 @@ Logika bisnis untuk manajemen pengguna dan verifikasi perusahaan.
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import or_
-from fastapi import HTTPException, status
-from typing import List, Optional
+from fastapi import HTTPException
+from typing import Optional
 
 from app.models.user import User, PerusahaanProfile, PelamarProfile, KampusProfile
 from app.models.application import CVDocument

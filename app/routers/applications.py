@@ -1,4 +1,3 @@
-from typing import Optional, Dict, Any
 """
 🛣️ Applications Router
 Endpoint: /api/applications
@@ -6,7 +5,6 @@ Proses melamar kerja dengan upload CV, analisis AI, dan penyimpanan ke database.
 """
 import os
 import json
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status, BackgroundTasks
 from pydantic import BaseModel
@@ -14,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload, joinedload
 import shutil
-import cloudinary
+from typing import Optional
 import cloudinary.uploader
 from app.core.config import settings
 from app.services.video_ai_service import video_ai_service

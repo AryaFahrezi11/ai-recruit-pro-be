@@ -22,8 +22,9 @@ from app.services.email_service import DEFAULT_TEMPLATES, send_rendered_email
 router = APIRouter()
 
 def verify_admin(current_user: dict = Depends(verify_token)):
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Akses ditolak, hanya untuk admin.")
+    role = str(current_user.get("role", "")).lower()
+    if role not in ["admin", "kampus", "universitas"]:
+        raise HTTPException(status_code=403, detail="Akses ditolak, hanya untuk admin atau universitas.")
     return current_user
 
 

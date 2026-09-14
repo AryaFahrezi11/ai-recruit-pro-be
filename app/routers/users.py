@@ -1,3 +1,32 @@
+import base64
+
+def save_base64_image(base64_str: str) -> str:
+    if not base64_str or not isinstance(base64_str, str) or not base64_str.startswith("data:image/"):
+        return base64_str
+    try:
+        header, data = base64_str.split(";base64,", 1)
+        ext = "png"
+        if "jpeg" in header or "jpg" in header:
+            ext = "jpg"
+        elif "webp" in header:
+            ext = "webp"
+        elif "gif" in header:
+            ext = "gif"
+        elif "svg" in header:
+            ext = "svg"
+        
+        filename = f"logo_{uuid.uuid4().hex[:12]}.{ext}"
+        os.makedirs("uploads", exist_ok=True)
+        filepath = os.path.join("uploads", filename)
+        
+        with open(filepath, "wb") as f:
+            f.write(base64.b64decode(data))
+            
+        return f"/uploads/{filename}"
+    except Exception as e:
+        print("Error saving base64 image:", e)
+        return base64_str
+
 """
 🛣️ Users Router
 Endpoint: GET /api/users/profile, PUT /api/users/profile, POST /api/users/cv/upload
@@ -116,15 +145,12 @@ async def get_profile(
             "rejection_reason": c.rejection_reason,
             "has_completed_profile": has_completed_profile,
         }
-    elif role == "kampus" and user.kampus_profile:
+    elif (role in ["kampus", "KAMPUS", "UNIVERSITAS", "universitas"]) and user.kampus_profile:
         k = user.kampus_profile
         response["profil"] = {
             "id": k.id,
             "nama_kampus": k.nama_kampus,
-            "jenis": k.jenis,
             "alamat": k.alamat,
-            "kota": k.kota,
-            "provinsi": k.provinsi,
             "website_url": k.website_url,
             "logo_url": k.logo_url,
             "akreditasi": k.akreditasi,
@@ -327,5 +353,61 @@ async def update_profile(
             
         await db.commit()
         return {"message": "Profil perusahaan berhasil diupdate"}
-        
+
+    elif role in ["kampus", "KAMPUS", "UNIVERSITAS", "universitas"]:
+        result = await db.execute(select(KampusProfile).where(KampusProfile.user_id == user_id))
+        profile = result.scalars().first()
+
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+
+        nama_kampus = data.get("nama_kampus")
+        alamat = data.get("alamat")
+        website_url = data.get("website_url")
+        logo_url = save_base64_image(data.get("logo_url") or payload.get("logo_url") if "payload" in locals() else data.get("logo_url"))
+        akreditasi = data.get("akreditasi")
+        nama_pic = data.get("nama_pic")
+        jabatan_pic = data.get("jabatan_pic")
+        no_telepon_pic = data.get("no_telepon_pic")
+
+        if not profile:
+            user_res = await db.execute(select(User).where(User.id == user_id))
+            user_obj = user_res.scalars().first()
+            default_name = f"Universitas {user_obj.email}" if user_obj and user_obj.email else "Universitas"
+            profile = KampusProfile(
+                user_id=user_id,
+                nama_kampus=nama_kampus or default_name,
+                alamat=alamat,
+                website_url=website_url,
+                logo_url=logo_url,
+                akreditasi=akreditasi,
+                nama_pic=nama_pic,
+                jabatan_pic=jabatan_pic,
+                no_telepon_pic=no_telepon_pic,
+            )
+            db.add(profile)
+        else:
+            if nama_kampus:
+                profile.nama_kampus = nama_kampus
+            if alamat is not None:
+                profile.alamat = alamat
+            if website_url is not None:
+                profile.website_url = website_url
+            if logo_url is not None:
+                profile.logo_url = logo_url
+            if akreditasi is not None:
+                profile.akreditasi = akreditasi
+            if nama_pic is not None:
+                profile.nama_pic = nama_pic
+            if jabatan_pic is not None:
+                profile.jabatan_pic = jabatan_pic
+            if no_telepon_pic is not None:
+                profile.no_telepon_pic = no_telepon_pic
+
+        await db.commit()
+        await db.refresh(profile)
+        return {"message": "Profil kampus berhasil diupdate"}
+
     return {"message": "Role tidak didukung untuk update saat ini"}

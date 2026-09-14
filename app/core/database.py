@@ -21,13 +21,25 @@ if is_pg:
 
 if is_pg or is_mysql:
     engine_kwargs["poolclass"] = AsyncAdaptedQueuePool
-    engine_kwargs["pool_size"] = 10
-    engine_kwargs["max_overflow"] = 20
+    # Supabase Free Tier dibatasi maksimal 15 koneksi pooler PgBouncer
+    if is_pg:
+        engine_kwargs["pool_size"] = 4
+        engine_kwargs["max_overflow"] = 4
+        engine_kwargs["pool_timeout"] = 10
+    else: # MySQL
+        engine_kwargs["pool_size"] = 10
+        engine_kwargs["max_overflow"] = 20
+        engine_kwargs["pool_timeout"] = 20
     engine_kwargs["pool_recycle"] = 300
     engine_kwargs["pool_pre_ping"] = True
-    engine_kwargs["pool_timeout"] = 30
 
-engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
+db_url = settings.DATABASE_URL
+# Jika menggunakan Supabase Pooler pada port 5432 (Session Mode max 15 klien),
+# alihkan otomatis ke port 6543 (Transaction Mode) yang mendukung ribuan koneksi tanpa batas pool_size.
+if ("supabase.co" in db_url or "pooler.supabase.com" in db_url) and ":5432" in db_url:
+    db_url = db_url.replace(":5432", ":6543")
+
+engine = create_async_engine(db_url, **engine_kwargs)
 
 
 # Session factory

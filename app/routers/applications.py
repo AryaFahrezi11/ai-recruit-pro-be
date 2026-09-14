@@ -164,6 +164,8 @@ async def get_applications(
         for app in applications:
             app_dict = {
                 "id": app.id,
+                "job_id": app.job_id,
+                "pelamar_id": app.pelamar_id,
                 "status": app.status,
                 "catatan_pelamar": app.catatan_pelamar,
                 "catatan_perusahaan": getattr(app, "catatan_perusahaan", None),
@@ -249,6 +251,8 @@ async def get_applications(
                     "skor_kecocokan": float(app.cv_analysis.skor_kecocokan),
                     "kategori": app.cv_analysis.kategori,
                     "hasil": app.cv_analysis.hasil,
+                    "waktu_proses_ms": app.cv_analysis.waktu_proses_ms,
+                    "status_rekomendasi": "LOLOS" if (app.cv_analysis.hasil or "").lower() == "lolos" else "TIDAK_LOLOS",
                     "hybrid_details": json.loads(app.cv_analysis.detail_analisis) if app.cv_analysis.detail_analisis else None,
                 }
             if hasattr(app, "ai_result") and app.ai_result:
@@ -1037,9 +1041,10 @@ async def process_video_job(job_id: str, application_id: str):
                 pertanyaan_perusahaan = "Ceritakan tentang diri Anda, latar belakang pengalaman, dan keahlian utama yang relevan."
 
         # 2. Update status: Downloading video
-        await update_job(application_id, progress=5, job_status="downloading", current_step="Mengunduh video wawancara dari Cloudinary...")
+        await update_job(application_id, progress=5, job_status="downloading", current_step="Mengunduh video wawancara dari penyimpanan cloud...")
         os.makedirs("temp_videos", exist_ok=True)
-        await asyncio.to_thread(urllib.request.urlretrieve, video_url, temp_video_path)
+        from app.services.storage_service import download_video_file_to_local
+        await asyncio.to_thread(download_video_file_to_local, video_url, temp_video_path)
 
         # 3. Callback untuk melacak progress AI visual & suara langsung di RAM (thread-safe, O(1), no DB collision)
         def progress_cb(pct: int, msg: str):
@@ -1196,15 +1201,12 @@ async def upload_interview_video(
         shutil.copyfileobj(video.file, buffer)
 
     try:
-        import cloudinary.uploader
-        upload_result = cloudinary.uploader.upload(
-            temp_path, 
-            resource_type="video",
-            folder="ai_recruit_interviews"
-        )
-        video_url = upload_result.get("secure_url")
+        from app.services.storage_service import upload_video_file
+        video_url = await asyncio.to_thread(upload_video_file, temp_path, video.filename)
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gagal mengunggah video ke Cloudinary: {e}")
+        raise HTTPException(status_code=500, detail=f"Gagal mengunggah video wawancara: {e}")
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
@@ -1284,13 +1286,12 @@ async def analyze_interview_video(
 
 @router.get("/{application_id}/video-progress")
 async def get_video_analysis_progress(
-    application_id: str,
-    db: AsyncSession = Depends(get_db)
+    application_id: str
 ):
     """
     Endpoint khusus untuk memantau progress nyata pemrosesan video AI kandidat.
     """
-    # 1. Cek in-memory progress terlebih dahulu (jika sedang aktif diproses)
+    # 1. Cek in-memory progress terlebih dahulu (jika sedang aktif diproses) - ZERO DB CONNECTION
     if application_id in ACTIVE_JOB_PROGRESS:
         cached = ACTIVE_JOB_PROGRESS[application_id]
         return {
@@ -1302,32 +1303,34 @@ async def get_video_analysis_progress(
             "updated_at": None
         }
 
-    # 2. Jika tidak ada di cache aktif, ambil dari database
-    result = await db.execute(select(VideoAnalysisJob).where(VideoAnalysisJob.application_id == application_id))
-    job = result.scalars().first()
+    # 2. Jika tidak ada di cache aktif, baru ambil dari database
+    from app.core.database import async_session
+    async with async_session() as db:
+        result = await db.execute(select(VideoAnalysisJob).where(VideoAnalysisJob.application_id == application_id))
+        job = result.scalars().first()
 
-    if job:
-        return {
-            "application_id": application_id,
-            "status": job.status,
-            "progress": job.progress,
-            "message": job.current_step,
-            "error": job.error_message,
-            "updated_at": str(job.updated_at) if job.updated_at else None
-        }
+        if job:
+            return {
+                "application_id": application_id,
+                "status": job.status,
+                "progress": job.progress,
+                "message": job.current_step,
+                "error": job.error_message,
+                "updated_at": str(job.updated_at) if job.updated_at else None
+            }
 
-    # Jika job belum dibuat di tabel, periksa apakah lamaran sudah selesai sebelumnya
-    app_result = await db.execute(select(Application).where(Application.id == application_id))
-    app_record = app_result.scalars().first()
+        # Jika job belum dibuat di tabel, periksa apakah lamaran sudah selesai sebelumnya
+        app_result = await db.execute(select(Application).where(Application.id == application_id))
+        app_record = app_result.scalars().first()
 
-    if app_record and app_record.status == "human_validation":
-        return {
-            "application_id": application_id,
-            "status": "completed",
-            "progress": 100,
-            "message": "Analisis AI selesai",
-            "error": None
-        }
+        if app_record and app_record.status == "human_validation":
+            return {
+                "application_id": application_id,
+                "status": "completed",
+                "progress": 100,
+                "message": "Analisis AI selesai",
+                "error": None
+            }
 
     return {
         "application_id": application_id,
@@ -1489,3 +1492,22 @@ async def trigger_daily_reminders(
     return {
         "message": f"Berhasil menjadwalkan {sent_count} pengingat email wawancara hari ini."
     }
+
+
+@router.get("/{application_id}/video")
+async def stream_application_video(application_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Streaming atau redirect ke URL video wawancara pelamar yang bebas dari blokir Telkomsel.
+    Menggunakan presigned URL resmi cloudflarestorage.com jika menggunakan Cloudflare R2.
+    """
+    from fastapi.responses import RedirectResponse
+    from app.services.storage_service import get_video_playback_url
+
+    result = await db.execute(select(Application).where(Application.id == application_id))
+    app_record = result.scalars().first()
+    if not app_record or not app_record.video_url:
+        raise HTTPException(status_code=404, detail="Video wawancara tidak ditemukan.")
+
+    playback_url = get_video_playback_url(app_record.video_url)
+    return RedirectResponse(url=playback_url, status_code=307)
+

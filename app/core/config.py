@@ -27,7 +27,14 @@ class Settings(BaseSettings):
     # --- CORS ---
     FRONTEND_URL: str = "http://localhost:3000"
 
-    # --- Cloudinary ---
+    # --- Cloud Media Storage (Cloudflare R2) ---
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET_NAME: str = "airecruitpro"
+    R2_PUBLIC_URL: str = ""
+
+    # --- Cloudinary (Legacy / Fallback) ---
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""

@@ -1495,6 +1495,7 @@ async def trigger_daily_reminders(
 
 
 @router.get("/{application_id}/video")
+@router.head("/{application_id}/video")
 async def stream_application_video(application_id: str, db: AsyncSession = Depends(get_db)):
     """
     Streaming atau redirect ke URL video wawancara pelamar yang bebas dari blokir Telkomsel.
@@ -1510,4 +1511,6 @@ async def stream_application_video(application_id: str, db: AsyncSession = Depen
 
     playback_url = get_video_playback_url(app_record.video_url)
     return RedirectResponse(url=playback_url, status_code=307)
+
+
 

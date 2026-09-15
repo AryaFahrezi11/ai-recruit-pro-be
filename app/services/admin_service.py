@@ -14,6 +14,8 @@ from app.models.application import CVDocument, Application
 from sqlalchemy.orm import selectinload
 from app.core.security import hash_password
 from app.schemas.admin import AdminUserCreateRequest, AdminUserUpdateRequest
+from app.services.storage_service import get_video_playback_url
+
 
 
 class AdminService:
@@ -97,13 +99,26 @@ class AdminService:
                                         company_name = getattr(app_item.job.perusahaan, "nama_perusahaan", "Perusahaan")
                                 except Exception:
                                     pass
+                            video_stream_url = None
+                            playback_direct_url = None
+                            if app_item.video_url:
+                                video_stream_url = f"/api/applications/{app_item.id}/video"
+                                try:
+                                    playback_direct_url = get_video_playback_url(app_item.video_url)
+                                except Exception:
+                                    playback_direct_url = video_stream_url
+
                             applications_list.append({
                                 "id": app_item.id,
                                 "company": company_name,
                                 "role": job_title,
                                 "status": app_item.status or "in_progress",
                                 "applied_at": str(app_item.applied_at) if app_item.applied_at else "Baru saja",
-                                "poFitScore": getattr(app_item, "fit_score", 0) or 0
+                                "poFitScore": getattr(app_item, "fit_score", 0) or 0,
+                                "video_url": video_stream_url or app_item.video_url,
+                                "video_playback_url": playback_direct_url,
+                                "raw_video_url": app_item.video_url,
+                                "ai_result": app_item.ai_result
                             })
                     except Exception as e:
                         print("Error loading applications for pelamar:", e)
@@ -113,8 +128,8 @@ class AdminService:
                 profile = p_result.scalars().first()
                 if profile:
                     profile_name = profile.nama_kampus or "-"
-                    is_verified = bool(profile.is_verified)
-                    verification_status = "VERIFIED" if profile.is_verified else "PENDING"
+                    is_verified = getattr(profile, "is_verified", True)
+                    verification_status = "VERIFIED" if is_verified else "PENDING"
                 else:
                     verification_status = "PENDING"
             elif u_role in ["admin", "superadmin"]:
@@ -129,6 +144,8 @@ class AdminService:
                 if not (match_email or match_name or match_role):
                     continue
 
+            top_video_app = next((a for a in applications_list if a.get("video_url")), None)
+
             users_data.append({
                 "id": user.id,
                 "email": user.email,
@@ -140,6 +157,9 @@ class AdminService:
                 "verification_status": verification_status,
                 "rejection_reason": rejection_reason,
                 "created_at": user.created_at,
+                "video_url": top_video_app["video_url"] if top_video_app else None,
+                "video_playback_url": top_video_app.get("video_playback_url") if top_video_app else None,
+                "ai_result": top_video_app["ai_result"] if top_video_app else None,
                 "profil": profil_dict if user.role == "pelamar" else None,
                 "applications": applications_list if user.role == "pelamar" else []
             })
@@ -237,11 +257,11 @@ class AdminService:
                     "nama_kampus": profile.nama_kampus,
                     "alamat": profile.alamat,
                     "kota": profile.kota,
-                    "provinsi": profile.provinsi,
+                    "provinsi": getattr(profile, "provinsi", None),
                     "website_url": profile.website_url,
-                    "no_telepon": profile.no_telepon,
+                    "no_telepon": getattr(profile, "no_telepon_pic", None),
                     "akreditasi": profile.akreditasi,
-                    "is_verified": profile.is_verified
+                    "is_verified": getattr(profile, "is_verified", True)
                 }
                 
         return {

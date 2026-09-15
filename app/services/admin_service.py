@@ -1,15 +1,17 @@
+from app.models.job import JobPosting
 """
 🛡️ Admin Service
 Logika bisnis untuk manajemen pengguna dan verifikasi perusahaan.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from fastapi import HTTPException
 from typing import Optional
 
 from app.models.user import User, PerusahaanProfile, PelamarProfile, KampusProfile
-from app.models.application import CVDocument
+from app.models.application import CVDocument, Application
+from sqlalchemy.orm import selectinload
 from app.core.security import hash_password
 from app.schemas.admin import AdminUserCreateRequest, AdminUserUpdateRequest
 
@@ -22,7 +24,7 @@ class AdminService:
         """Mendapatkan daftar semua pengguna dengan filter role opsional dan pencarian"""
         query = select(User).order_by(User.created_at.desc())
         if role:
-            query = query.where(User.role == role)
+            query = query.where(func.lower(User.role) == role.lower())
         
         result = await self.db.execute(query)
         users = result.scalars().all()
@@ -37,7 +39,8 @@ class AdminService:
             is_verified = False
             rejection_reason = None
             
-            if user.role == "perusahaan":
+            u_role = str(user.role or "").lower()
+            if u_role in ["perusahaan", "company"]:
                 p_result = await self.db.execute(select(PerusahaanProfile).where(PerusahaanProfile.user_id == user.id))
                 profile = p_result.scalars().first()
                 if profile:
@@ -52,13 +55,60 @@ class AdminService:
                         verification_status = "PENDING"
                 else:
                     verification_status = "PENDING"
-            elif user.role == "pelamar":
+            elif u_role in ["pelamar", "applicant", "candidate"]:
                 p_result = await self.db.execute(select(PelamarProfile).where(PelamarProfile.user_id == user.id))
                 profile = p_result.scalars().first()
+                profil_dict = None
+                applications_list = []
                 if profile:
                     profile_name = profile.nama_lengkap or "-"
+                    profil_dict = {
+                        "id": profile.id,
+                        "nama_lengkap": profile.nama_lengkap,
+                        "no_telepon": profile.no_telepon,
+                        "alamat": profile.alamat,
+                        "ringkasan_diri": profile.ringkasan_diri,
+                        "linkedin_url": profile.linkedin_url,
+                        "portfolio_url": profile.portfolio_url,
+                        "judul_posisi": profile.judul_posisi,
+                        "keahlian": profile.keahlian,
+                        "sertifikasi": profile.sertifikasi,
+                        "pengalaman_kerja": profile.pengalaman_kerja,
+                        "riwayat_pendidikan": profile.riwayat_pendidikan,
+                        "social_links": profile.social_links,
+                    }
+                    try:
+                        app_res = await self.db.execute(
+                            select(Application)
+                            .options(
+                                selectinload(Application.job).selectinload(JobPosting.perusahaan)
+                            )
+                            .where(Application.pelamar_id == profile.id)
+                            .order_by(Application.applied_at.desc())
+                        )
+                        apps = app_res.scalars().all()
+                        for app_item in apps:
+                            job_title = "-"
+                            company_name = "Perusahaan"
+                            if app_item.job:
+                                job_title = getattr(app_item.job, "judul_posisi", getattr(app_item.job, "title", "-"))
+                                try:
+                                    if app_item.job.perusahaan:
+                                        company_name = getattr(app_item.job.perusahaan, "nama_perusahaan", "Perusahaan")
+                                except Exception:
+                                    pass
+                            applications_list.append({
+                                "id": app_item.id,
+                                "company": company_name,
+                                "role": job_title,
+                                "status": app_item.status or "in_progress",
+                                "applied_at": str(app_item.applied_at) if app_item.applied_at else "Baru saja",
+                                "poFitScore": getattr(app_item, "fit_score", 0) or 0
+                            })
+                    except Exception as e:
+                        print("Error loading applications for pelamar:", e)
                 verification_status = "VERIFIED" if user.is_active else "UNVERIFIED"
-            elif user.role == "kampus":
+            elif u_role in ["kampus", "universitas"]:
                 p_result = await self.db.execute(select(KampusProfile).where(KampusProfile.user_id == user.id))
                 profile = p_result.scalars().first()
                 if profile:
@@ -67,7 +117,7 @@ class AdminService:
                     verification_status = "VERIFIED" if profile.is_verified else "PENDING"
                 else:
                     verification_status = "PENDING"
-            elif user.role == "admin":
+            elif u_role in ["admin", "superadmin"]:
                 profile_name = "Administrator"
                 verification_status = "VERIFIED"
 
@@ -89,7 +139,9 @@ class AdminService:
                 "is_verified": is_verified,
                 "verification_status": verification_status,
                 "rejection_reason": rejection_reason,
-                "created_at": user.created_at
+                "created_at": user.created_at,
+                "profil": profil_dict if user.role == "pelamar" else None,
+                "applications": applications_list if user.role == "pelamar" else []
             })
             
         return users_data
@@ -103,7 +155,8 @@ class AdminService:
             raise HTTPException(status_code=404, detail="User tidak ditemukan")
             
         profile_data = {}
-        if user.role == "perusahaan":
+        u_role = str(user.role or "").lower()
+        if u_role in ["perusahaan", "company"]:
             p_result = await self.db.execute(select(PerusahaanProfile).where(PerusahaanProfile.user_id == user.id))
             profile = p_result.scalars().first()
             if profile:
@@ -130,7 +183,7 @@ class AdminService:
                     "status": profile.status,
                     "rejection_reason": profile.rejection_reason
                 }
-        elif user.role == "pelamar":
+        elif u_role in ["pelamar", "applicant", "candidate"]:
             p_result = await self.db.execute(select(PelamarProfile).where(PelamarProfile.user_id == user.id))
             profile = p_result.scalars().first()
             if profile:
@@ -176,7 +229,7 @@ class AdminService:
                     "latest_cv": latest_cv,
                     "cv_documents": cv_list
                 }
-        elif user.role == "kampus":
+        elif u_role in ["kampus", "universitas"]:
             p_result = await self.db.execute(select(KampusProfile).where(KampusProfile.user_id == user.id))
             profile = p_result.scalars().first()
             if profile:

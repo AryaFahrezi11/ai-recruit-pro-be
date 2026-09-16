@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libgl1 \
+    libegl1 \
+    libgles2 \
     libglib2.0-0 \
     tesseract-ocr \
     tesseract-ocr-ind \

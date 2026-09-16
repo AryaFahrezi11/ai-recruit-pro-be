@@ -1,133 +1,87 @@
-# 🚀 Panduan Deployment VPS (RAM 4GB, 2 CPU) - AI Recruit Pro
+# 🚀 Laporan Progress & Panduan Deployment VPS - AI Recruit Pro
 
-Panduan ini disusun khusus agar backend FastAPI (beserta model AI: YOLOv8, SBERT, Faster-Whisper, MediaPipe) dan database **MySQL** dapat berjalan stabil tanpa crash/OOM (Out of Memory) pada VPS dengan spesifikasi **RAM 4GB & 2 vCPU**.
+> **Status Terakhir:** 16 September 2026, 23:59 WIB  
+> **Kondisi:** Siap dilanjutkan kembali kapan saja.
 
 ---
 
-## ⚠️ Langkah 1: Buat 4GB Swap File di Ubuntu VPS (Wajib!)
+## 📊 Status Progres Saat Ini (Yang Sudah Selesai Dilakukan)
 
-VPS dengan RAM 4GB membutuhkan virtual RAM tambahan (Swap) agar saat pemrosesan video atau transkripsi Whisper terjadi lonjakan memori, server tidak *freeze* atau me-reboot sendiri.
+| Komponen | Status | Detail yang Telah Dikerjakan |
+| :--- | :---: | :--- |
+| **Backend Code & Docker** | ✅ **Selesai** | `requirements.txt` diperbarui (headless & MySQL). `Dockerfile` telah dilengkapi pustaka `libegl1` & `libgles2` untuk MediaPipe, PyTorch CPU-only build, serta optimasi caching volume model AI (`hf_cache`). Sudah di-push ke GitHub branch `siap_deploy`. |
+| **Frontend Code (Next.js)** | ✅ **Selesai** | Branch `siap_deploy` telah berhasil di-merge ke branch `main` dan di-push ke GitHub (`origin main`), sehingga siap 100% di-deploy ke Vercel kapan saja. |
+| **Virtual RAM (Swap 4GB)** | ✅ **Selesai** | File swap 4GB telah dibuat dan aktif di VPS (`free -h` menunjukkan Swap 4.0Gi). Melindungi server dari potensi crash OOM. |
+| **Docker & Docker Compose** | ✅ **Selesai** | Docker v29.8.1 dan Docker Compose v5.5.1 telah sukses terinstall di VPS Ubuntu. |
+| **Folder Proyek & `.env` VPS** | ✅ **Selesai** | Repository backend telah ter-clone di `/root/backend` VPS dan file konfigurasi `.env` produksi (kredensial MySQL, secret key, R2/Cloudflare storage) sudah terpasang. |
+| **Pembersihan Disk VPS** | ✅ **Selesai** | Cache build Docker yang menumpuk telah dibersihkan via `docker system prune`, ruang disk lega kembali **~8.3 GB free**. |
+| **Tiket Support Arenhost** | ⏳ **Menunggu Balasan** | Tiket komplain telah dikirim ke tim teknis Arenhost mengenai ketidaksesuaian alokasi VPS (order KVM-3: 4GB RAM & 60GB SSD, namun saat ini terbaca 2GB RAM & 25GB SSD via `lsblk`). |
+| **Domain (`airecruit-pro.com`)** | ⏳ **Menunggu Aktif** | Domain telah dibeli di Arenhost dan sedang dalam antrean aktivasi global (Pending ➔ Active). |
 
-Jalankan perintah ini melalui terminal SSH VPS:
+---
+
+## 🎯 Langkah Selanjutnya (Next Steps Saat Lanjut Nanti)
+
+Saat Anda kembali untuk melanjutkan proses deployment, cukup ikuti urutan langkah praktis berikut:
+
+### 1. Cek Jawaban Tiket Arenhost (Alokasi RAM & SSD)
+* Cek email atau client area Arenhost apakah tim support sudah menaikkan resource VPS Anda menjadi 4GB RAM & 60GB SSD.
+* Verifikasi di terminal VPS:
+  ```bash
+  free -h    # Pastikan Mem terbaca ~3.8Gi - 4.0Gi
+  lsblk      # Pastikan vda terbaca 60G
+  ```
+
+---
+
+### 2. Jalankan Build Backend & Database MySQL di VPS
+Masuk ke folder backend dan jalankan build container versi terbaru (yang sudah dioptimasi hemat disk):
 
 ```bash
-# 1. Buat file swap sebesar 4GB
-sudo fallocate -l 4G /swapfile
-
-# 2. Atur permission file swap
-sudo chmod 600 /swapfile
-
-# 3. Format file sebagai swap space
-sudo mkswap /swapfile
-
-# 4. Aktifkan swap
-sudo swapon /swapfile
-
-# 5. Pasang permanen agar aktif saat VPS restart
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-
-# 6. Cek apakah swap sudah aktif (harus muncul swap ~4GB)
-free -h
-```
-
----
-
-## 📦 Langkah 2: Install Docker & Docker Compose di VPS
-
-Jika VPS belum terpasang Docker:
-
-```bash
-# Update repository
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg
-
-# Install Docker & Docker Compose plugin
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-
-# Pasang permission ke user saat ini
-sudo usermod -aG docker $USER
-```
-
----
-
-## ⚙️ Langkah 3: Siapkan Proyek & File Environment
-
-1. Clone atau copy folder `backend-airecruitpro` ke VPS:
-   ```bash
-   cd /var/www/backend-airecruitpro  # atau folder pilihan Anda
-   ```
-
-2. Buat file `.env` di direktori backend:
-   ```bash
-   nano .env
-   ```
-   Isi contoh konfigurasi:
-   ```env
-   # MySQL Configuration
-   MYSQL_ROOT_PASSWORD=PasswordRootAman123!
-   MYSQL_DATABASE=airecruitpro
-   MYSQL_USER=airecruit_user
-   MYSQL_PASSWORD=PasswordUserAman123!
-
-   # App Secret
-   SECRET_KEY=kombinasi_rahasia_dan_panjang_acak_min_32_karakter
-   FRONTEND_URL=https://app.domainanda.com
-
-   # Cloudflare R2 Storage (Opsional jika simpan file di cloud)
-   R2_ACCOUNT_ID=
-   R2_ACCESS_KEY_ID=
-   R2_SECRET_ACCESS_KEY=
-   R2_BUCKET_NAME=airecruitpro
-   R2_PUBLIC_URL=
-   ```
-
----
-
-## 🚢 Langkah 4: Build & Jalankan Container
-
-Jalankan perintah berikut:
-
-```bash
-# Jalankan container (Docker akan otomatis mengunduh dependency dan preload model AI)
+cd ~/backend
+git pull origin siap_deploy
+docker compose down
 docker compose up -d --build
 ```
 
-> **Apa yang terjadi saat proses build?**
-> 1. Menginstall PyTorch versi CPU khusus (hanya ~180MB, bukan 2.5GB).
-> 2. Menginstall library sistem (FFmpeg, OpenCV Headless, MediaPipe, Tesseract OCR).
-> 3. Menjalankan `preload_models.py` yang otomatis mengunduh dan mem-validasi:
->    - Model SBERT (`paraphrase-multilingual-MiniLM-L12-v2`) ke HuggingFace cache.
->    - Model Faster-Whisper (`tiny` int8).
->    - Model `yolov8n-pose.pt` dan `face_landmarker.task`.
-> 4. Mengonfigurasi MySQL dengan batas RAM 128MB InnoDB Buffer Pool agar hemat memori.
-
----
-
-## 🔍 Langkah 5: Memeriksa Status & Log
-
+Setelah selesai, periksa statusnya:
 ```bash
-# Cek apakah kedua container (backend & db) sedang berjalan
+# 1. Cek apakah container backend dan db sudah aktif
 docker compose ps
 
-# Melihat log proses backend secara live
-docker compose logs -f backend
+# 2. Cek log backend FastAPI
+docker compose logs backend --tail 30
 
-# Melihat log database MySQL
-docker compose logs -f db
-
-# Cek penggunaan RAM real-time
-docker stats
+# 3. Uji coba buka dokumentasi API di browser laptop Anda:
+# http://IP_VPS_ANDA:8000/docs
 ```
 
 ---
 
-## 🛡️ Rangkuman Optimasi RAM 4GB:
+### 3. Konfigurasi Domain & Cloudflare
+Setelah domain `airecruit-pro.com` berubah status menjadi **Active** di Arenhost:
+1. Hubungkan domain ke Cloudflare dengan mengganti Nameserver di Arenhost ke Nameserver Cloudflare.
+2. Di menu **DNS Cloudflare**, buat 2 record penting:
+   * **Subdomain Backend API:**
+     * `Type: A` | `Name: api` | `IPv4: IP_VPS_ANDA` | `Proxy: Proxied`
+   * **Domain Frontend (Vercel):**
+     * `Type: CNAME` | `Name: @` | `Target: cname.vercel-dns.com` | `Proxy: DNS Only / Proxied`
+     * `Type: CNAME` | `Name: www` | `Target: cname.vercel-dns.com` | `Proxy: DNS Only / Proxied`
 
-| Komponen | Alokasi Normal Default | Alokasi Dioptimasi di Setup Ini |
-| :--- | :--- | :--- |
-| **MySQL 8.0** | 1.2 GB - 2.0 GB | **~250 MB - 350 MB** (`innodb-buffer-pool-size=128M`) |
-| **PyTorch Wheel** | ~2.5 GB (CUDA build) | **~180 MB** (CPU build) |
-| **Uvicorn Worker** | Multi-worker (4x RAM) | **1 Worker** (Single process asynchronous) |
-| **SBERT + Whisper** | Download saat runtime (hang) | **Preloaded saat build** |
-| **Safety Net** | Tanpa Swap (Crash OOM) | **4GB Swap File** |
+---
+
+### 4. Deploy Frontend ke Vercel
+1. Buka [vercel.com](https://vercel.com/) ➔ Import repository `AryaFahrezi11/ai-recruit-pro-FE` (branch `main`).
+2. Masukkan Environment Variable:
+   * `NEXT_PUBLIC_API_URL` = `https://api.airecruit-pro.com/api`
+3. Klik **Deploy**.
+4. Di menu Settings Vercel ➔ **Domains**, pasang domain `airecruit-pro.com`.
+
+---
+
+### 5. Pasang Nginx Reverse Proxy di VPS (Langkah Terakhir)
+Agar backend di VPS dapat diakses melalui `https://api.airecruit-pro.com` secara resmi di port 80/443 (tanpa perlu mengetik `:8000` di belakang URL).
+
+---
+
+Selamat beristirahat! Kapan pun Anda siap melanjutkan, kabari saya dan kita tinggal mulai dari **Langkah 1 & 2** di atas. 🌙✨

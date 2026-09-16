@@ -37,11 +37,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Salin file proyek backend dan model yang sudah ada
 COPY . .
 
-# 3. Preload dan unduh semua model AI (SBERT, Whisper Tiny, YOLO, MediaPipe) ke dalam cache container
-RUN python preload_models.py
-
 # Expose port FastAPI
 EXPOSE 8000
 
-# Jalankan Uvicorn dengan 1 worker untuk efisiensi RAM di VPS 4GB
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Jalankan preload model saat container start, lalu jalankan Uvicorn (hemat space build image)
+CMD ["sh", "-c", "python preload_models.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]

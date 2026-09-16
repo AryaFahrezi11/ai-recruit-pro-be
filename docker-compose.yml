@@ -62,6 +62,7 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./temp_videos:/app/temp_videos
+      - hf_cache:/root/.cache/huggingface
     networks:
       - airecruit_net
     deploy:
@@ -75,4 +76,6 @@ networks:
 
 volumes:
   mysql_data:
+    driver: local
+  hf_cache:
     driver: local

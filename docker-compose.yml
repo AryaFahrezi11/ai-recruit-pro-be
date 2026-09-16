@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # ====================================================================
+  # 1. DATABASE MYSQL 8.0 (DIBATASI KHUSUS AGAR RAM VPS 4GB TIDAK CRASH)
+  # ====================================================================
+  db:
+    image: mysql:8.0
+    container_name: airecruit_mysql
+    restart: unless-stopped
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --innodb-buffer-pool-size=128M
+      --innodb-log-buffer-size=16M
+      --max-connections=50
+      --performance_schema=OFF
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword_secret123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-airecruitpro}
+      MYSQL_USER: ${MYSQL_USER:-airecruit_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-userpassword_secret123}
+    ports:
+      # Port 3306 hanya dibuka di localhost VPS agar aman dari scan hacker luar
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - airecruit_net
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ====================================================================
+  # 2. BACKEND FASTAPI + AI SERVICES (YOLO, WHISPER, SBERT, MEDIAPIPE)
+  # ====================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: airecruit_backend
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+    environment:
+      # Koneksi database internal via jaringan Docker ke container 'db'
+      - DATABASE_URL=mysql+aiomysql://${MYSQL_USER:-airecruit_user}:${MYSQL_PASSWORD:-userpassword_secret123}@db:3306/${MYSQL_DATABASE:-airecruitpro}
+      - SECRET_KEY=${SECRET_KEY:-ganti-dengan-secret-key-yang-sangat-panjang-dan-acak-12345}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - DEBUG=False
+      # Penyimpanan Cloud (Cloudflare R2 / Cloudinary)
+      - R2_ACCOUNT_ID=${R2_ACCOUNT_ID:-}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+      - R2_BUCKET_NAME=${R2_BUCKET_NAME:-airecruitpro}
+      - R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME:-}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY:-}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET:-}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./temp_videos:/app/temp_videos
+    networks:
+      - airecruit_net
+    deploy:
+      resources:
+        limits:
+          memory: 3000M
+
+networks:
+  airecruit_net:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local

@@ -13,6 +13,7 @@ asyncpg
 psycopg2-binary
 aiosqlite
 aiomysql
+pymysql
 cryptography
 greenlet
 
@@ -29,8 +30,7 @@ cloudinary
 boto3
 
 # --- Computer Vision & Video AI ---
-# OpenCV untuk manipulasi & ekstraksi frame video
-opencv-python
+# Gunakan opencv-python-headless untuk server Linux / Docker tanpa GUI X11
 opencv-python-headless
 # MediaPipe untuk pelacakan 478 landmark wajah, iris mata, dan kontak mata
 mediapipe
@@ -47,7 +47,6 @@ numpy>=2.0.0
 # --- Audio AI & Speech-to-Text ---
 # Faster-Whisper untuk transkripsi ucapan bahasa Indonesia bersegmen waktu
 faster-whisper
-sounddevice
 
 # --- NLP & Semantic Evaluation (CV Screening & Video Q&A) ---
 # SBERT Multilingual untuk representasi embedding & pencocokan semantik jawaban

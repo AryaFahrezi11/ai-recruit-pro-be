@@ -1,0 +1,15 @@
+venv/
+tmpenv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+.env
+*.db
+.vscode/
+temp_videos/*
+!temp_videos/.gitkeep
+uploads/*
+!uploads/.gitkeep

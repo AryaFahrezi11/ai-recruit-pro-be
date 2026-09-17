@@ -79,6 +79,8 @@ class PerusahaanProfile(Base):
     hr_whatsapp = Column(String(20))
     hr_position = Column(String(100))
     hr_id_card_url = Column(String(500))
+    email_interview_user_subject = Column(String(255), nullable=True)
+    email_interview_user_body = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -94,6 +96,9 @@ class KampusProfile(Base):
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
     nama_kampus = Column(String(255), nullable=False)
     alamat = Column(Text)
+    kota = Column(String(100), nullable=True)
+    provinsi = Column(String(100), nullable=True)
+    jenis = Column(String(50), nullable=True)
     website_url = Column(String(500))
     logo_url = Column(String(500))
     akreditasi = Column(String(10))

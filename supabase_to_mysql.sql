@@ -1,9 +1,16 @@
 -- ========================================================
 -- AI Recruit Pro - Supabase to MySQL Migration Dump
--- Generated at: 2026-09-17 11:59:49
+-- Generated at: 2026-09-17 21:25:01
 -- ========================================================
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
+
+-- Pastikan kolom tambahan di MySQL sudah tersedia
+ALTER TABLE `perusahaan_profiles` ADD COLUMN IF NOT EXISTS `email_interview_user_subject` VARCHAR(255) NULL;
+ALTER TABLE `perusahaan_profiles` ADD COLUMN IF NOT EXISTS `email_interview_user_body` TEXT NULL;
+ALTER TABLE `kampus_profiles` ADD COLUMN IF NOT EXISTS `jenis` VARCHAR(50) NULL;
+ALTER TABLE `kampus_profiles` ADD COLUMN IF NOT EXISTS `kota` VARCHAR(100) NULL;
+ALTER TABLE `kampus_profiles` ADD COLUMN IF NOT EXISTS `provinsi` VARCHAR(100) NULL;
 
 -- Data untuk tabel: users (16 baris)
 INSERT INTO `users` (`id`, `email`, `password_hash`, `role`, `avatar_url`, `is_active`, `email_verified_at`, `created_at`, `updated_at`, `otp_code`, `otp_expires_at`, `is_banned`) VALUES ('59e81950-1066-4d89-937a-0033480eb3d2', 'aryafahreziamarully@gmail.com', '$2b$12$k9sWtBs9LzipZEueuNlqVOYGVZj.W6Rt0gKftWTty8FvLZE.6hNxa', 'pelamar', NULL, 1, '2026-09-11 01:09:58', '2026-09-11 01:09:18', '2026-09-11 06:49:27', NULL, NULL, 0) ON DUPLICATE KEY UPDATE id=id;

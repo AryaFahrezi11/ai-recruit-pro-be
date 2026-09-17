@@ -9,7 +9,7 @@ from app.core.database import Base
 class JobCategory(Base):
     __tablename__ = "job_categories"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     nama_kategori = Column(String(100), unique=True, nullable=False)
     deskripsi = Column(String(255))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -21,9 +21,9 @@ class JobCategory(Base):
 class JobPosting(Base):
     __tablename__ = "job_postings"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    perusahaan_id = Column(String, ForeignKey("perusahaan_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
-    kategori_id = Column(String, ForeignKey("job_categories.id", ondelete="SET NULL"), index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    perusahaan_id = Column(String(36), ForeignKey("perusahaan_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    kategori_id = Column(String(36), ForeignKey("job_categories.id", ondelete="SET NULL"), index=True)
     judul_posisi = Column(String(255), nullable=False)
     deskripsi_pekerjaan = Column(Text, nullable=False)
     kualifikasi = Column(Text)
@@ -65,9 +65,9 @@ class JobPosting(Base):
 class SavedJob(Base):
     __tablename__ = "saved_jobs"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    pelamar_id = Column(String, ForeignKey("pelamar_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
-    job_id = Column(String, ForeignKey("job_postings.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    pelamar_id = Column(String(36), ForeignKey("pelamar_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    job_id = Column(String(36), ForeignKey("job_postings.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships

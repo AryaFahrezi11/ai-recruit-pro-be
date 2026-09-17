@@ -9,8 +9,8 @@ from app.core.database import Base
 class CVDocument(Base):
     __tablename__ = "cv_documents"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    pelamar_id = Column(String, ForeignKey("pelamar_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    pelamar_id = Column(String(36), ForeignKey("pelamar_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
     nama_file = Column(String(255), nullable=False)
     file_url = Column(String(500), nullable=False)
     file_type = Column(String(10), nullable=False)
@@ -36,10 +36,10 @@ class CVDocument(Base):
 class Application(Base):
     __tablename__ = "applications"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    pelamar_id = Column(String, ForeignKey("pelamar_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
-    job_id = Column(String, ForeignKey("job_postings.id", ondelete="CASCADE"), nullable=False, index=True)
-    cv_document_id = Column(String, ForeignKey("cv_documents.id", ondelete="RESTRICT"), nullable=False)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    pelamar_id = Column(String(36), ForeignKey("pelamar_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    job_id = Column(String(36), ForeignKey("job_postings.id", ondelete="CASCADE"), nullable=False, index=True)
+    cv_document_id = Column(String(36), ForeignKey("cv_documents.id", ondelete="RESTRICT"), nullable=False)
     status = Column(String(20), default="dikirim", index=True)
     catatan_pelamar = Column(Text)
     video_url = Column(String(500), nullable=True)

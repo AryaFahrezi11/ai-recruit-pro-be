@@ -9,10 +9,10 @@ from app.core.database import Base
 class CVAnalysisResult(Base):
     __tablename__ = "cv_analysis_results"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    application_id = Column(String, ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, index=True)
-    cv_document_id = Column(String, ForeignKey("cv_documents.id", ondelete="CASCADE"), nullable=False)
-    job_id = Column(String, ForeignKey("job_postings.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    application_id = Column(String(36), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, index=True)
+    cv_document_id = Column(String(36), ForeignKey("cv_documents.id", ondelete="CASCADE"), nullable=False)
+    job_id = Column(String(36), ForeignKey("job_postings.id", ondelete="CASCADE"), nullable=False, index=True)
     cosine_similarity_score = Column(Numeric(8, 6), nullable=False)
     skor_kecocokan = Column(Numeric(5, 2), nullable=False)
     threshold_digunakan = Column(Numeric(5, 2), nullable=False)

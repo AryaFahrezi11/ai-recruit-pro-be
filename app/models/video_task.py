@@ -9,8 +9,8 @@ from app.core.database import Base
 class VideoAnalysisJob(Base):
     __tablename__ = "video_analysis_jobs"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    application_id = Column(String, ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    application_id = Column(String(36), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     status = Column(String(30), default="queued", index=True)  # queued, downloading, processing_frames, transcribing, summarizing, completed, failed
     progress = Column(Integer, default=0)  # 0 to 100
     current_step = Column(String(255), default="Menunggu antrean...")

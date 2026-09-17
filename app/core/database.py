@@ -50,6 +50,18 @@ async_session = async_sessionmaker(
 )
 
 
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.types import String
+
+# Kompabilitas Dialek MySQL: Mengubah Column(String) tanpa panjang menjadi VARCHAR(255) otomatis
+@compiles(String, "mysql")
+@compiles(String, "mariadb")
+def compile_string_mysql(type_, compiler, **kw):
+    if type_.length is None:
+        return "VARCHAR(255)"
+    return compiler.visit_VARCHAR(type_, **kw)
+
+
 # Base class untuk semua model database
 class Base(DeclarativeBase):
     pass

@@ -7,8 +7,8 @@ from app.core.database import Base
 class PlatformReview(Base):
     __tablename__ = "platform_reviews"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(255))
     role = Column(String(100))
     rating = Column(Integer, default=5)

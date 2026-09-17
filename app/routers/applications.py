@@ -16,22 +16,14 @@ from typing import Optional
 import cloudinary.uploader
 from app.core.config import settings
 from app.services.video_ai_service import video_ai_service
-from supabase import create_client, Client
 
-# Konfigurasi Cloudinary
-cloudinary.config(
-    cloud_name=settings.CLOUDINARY_CLOUD_NAME,
-    api_key=settings.CLOUDINARY_API_KEY,
-    api_secret=settings.CLOUDINARY_API_SECRET
-)
-
-# Hubungkan ke Supabase (opsional / fallback)
-supabase: Optional[Client] = None
-if settings.SUPABASE_URL and settings.SUPABASE_KEY:
-    try:
-        supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
-    except Exception as e:
-        print(f"[WARN] Gagal inisialisasi Supabase client: {e}")
+# Konfigurasi Cloudinary (Fallback jika R2 belum diisi)
+if settings.CLOUDINARY_CLOUD_NAME:
+    cloudinary.config(
+        cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+        api_key=settings.CLOUDINARY_API_KEY,
+        api_secret=settings.CLOUDINARY_API_SECRET
+    )
 
 from app.core.database import get_db, async_session
 from app.core.security import verify_token

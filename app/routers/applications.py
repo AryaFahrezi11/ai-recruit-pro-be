@@ -25,8 +25,13 @@ cloudinary.config(
     api_secret=settings.CLOUDINARY_API_SECRET
 )
 
-# Hubungkan ke Supabase (gunakan konfigurasi asli milik user)
-supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+# Hubungkan ke Supabase (opsional / fallback)
+supabase: Optional[Client] = None
+if settings.SUPABASE_URL and settings.SUPABASE_KEY:
+    try:
+        supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    except Exception as e:
+        print(f"[WARN] Gagal inisialisasi Supabase client: {e}")
 
 from app.core.database import get_db, async_session
 from app.core.security import verify_token

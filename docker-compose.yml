@@ -70,6 +70,29 @@ services:
         limits:
           memory: 3000M
 
+  # ====================================================================
+  # 3. PHPMYADMIN (DATABASE WEB UI & IMPORT DATA)
+  # ====================================================================
+  phpmyadmin:
+    image: phpmyadmin:5-apache
+    container_name: airecruit_pma
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      UPLOAD_LIMIT: 128M
+      MEMORY_LIMIT: 128M
+    ports:
+      - "8080:80"
+    networks:
+      - airecruit_net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
 networks:
   airecruit_net:
     driver: bridge

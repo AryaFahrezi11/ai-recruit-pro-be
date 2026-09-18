@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     INTERVIEW_THRESHOLD_DEFAULT: float = 40.0
 
     # --- CORS ---
-    FRONTEND_URL: str = "http://localhost:3000"
+    FRONTEND_URL: str = "https://airecruit-pro.com"
 
     # --- Cloud Media Storage (Cloudflare R2) ---
     R2_ACCOUNT_ID: str = ""

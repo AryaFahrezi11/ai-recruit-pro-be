@@ -377,6 +377,8 @@ async def run_ai_screening_background(application_id: str, embedding_service):
                             body_tpl = getattr(comp_settings, 'email_invitation_body', None) or "Halo {{candidate_name}}, Selamat! CV Anda telah lolos tahap seleksi awal (PO-FIT). Silakan masuk ke portal Riwayat Lamaran Anda untuk merekam wawancara video virtual: {{interview_link}}"
                             rejection_reason = ""
                         
+                        frontend_base = (os.getenv("FRONTEND_URL") or settings.FRONTEND_URL).rstrip("/")
+                        interview_link = f"{frontend_base}/applicant/status"
                         replace_dict = {
                             "{{candidate_name}}": candidate_name,
                             "{nama_pelamar}": candidate_name,
@@ -386,8 +388,8 @@ async def run_ai_screening_background(application_id: str, embedding_service):
                             "{nama_perusahaan}": company_name,
                             "{{alasan_penolakan}}": rejection_reason,
                             "{alasan_penolakan}": rejection_reason,
-                            "{{interview_link}}": "http://localhost:3000/applicant/status",
-                            "{link_interview}": "http://localhost:3000/applicant/status",
+                            "{{interview_link}}": interview_link,
+                            "{link_interview}": interview_link,
                         }
                         
                         final_subj = subj_tpl
@@ -921,6 +923,8 @@ async def update_application_status(
                 notes_str = intv_det.get('catatan', payload.catatan_perusahaan or '-')
                 rejection_reason = payload.catatan_perusahaan or "Kualifikasi profil belum sesuai dengan kriteria yang dibutuhkan saat ini."
                 
+                frontend_base = (os.getenv("FRONTEND_URL") or settings.FRONTEND_URL).rstrip("/")
+                interview_link = f"{frontend_base}/applicant/status"
                 replace_dict = {
                     "{{candidate_name}}": candidate_name,
                     "{nama_pelamar}": candidate_name,
@@ -928,8 +932,8 @@ async def update_application_status(
                     "{judul_posisi}": job_title,
                     "{{company_name}}": company_name,
                     "{nama_perusahaan}": company_name,
-                    "{{interview_link}}": "http://localhost:3000/applicant/status",
-                    "{link_interview}": "http://localhost:3000/applicant/status",
+                    "{{interview_link}}": interview_link,
+                    "{link_interview}": interview_link,
                     "{{jadwal_wawancara}}": schedule_str,
                     "{jadwal_wawancara}": schedule_str,
                     "{{lokasi_atau_link}}": location_str,

@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.setting import SystemSetting
+from app.core.config import settings as app_settings
 
 DEFAULT_TEMPLATES: Dict[str, str] = {
     "email_tpl_otp_subject": "Kode OTP Verifikasi - AI Recruit Pro",
@@ -140,7 +141,7 @@ async def send_rendered_email(db: AsyncSession, recipient: str, subject: str, bo
 async def send_company_approved_email(db: AsyncSession, company_name: str, recipient_email: str, login_url: str = None):
     """Mengirim email notifikasi bahwa akun perusahaan telah diverifikasi."""
     settings = await get_all_settings_dict(db)
-    base_url = settings.get("public_domain_url") or os.getenv("FRONTEND_URL", "http://localhost:3000")
+    base_url = settings.get("public_domain_url") or os.getenv("FRONTEND_URL") or app_settings.FRONTEND_URL
     if not login_url:
         login_url = f"{base_url.rstrip('/')}/login"
 
@@ -155,7 +156,7 @@ async def send_company_approved_email(db: AsyncSession, company_name: str, recip
 async def send_company_rejected_email(db: AsyncSession, company_name: str, recipient_email: str, reason: str, revisi_url: str = None):
     """Mengirim email notifikasi bahwa verifikasi perusahaan ditolak beserta alasannya."""
     settings = await get_all_settings_dict(db)
-    base_url = settings.get("public_domain_url") or os.getenv("FRONTEND_URL", "http://localhost:3000")
+    base_url = settings.get("public_domain_url") or os.getenv("FRONTEND_URL") or app_settings.FRONTEND_URL
     if not revisi_url:
         revisi_url = f"{base_url.rstrip('/')}/login"
 

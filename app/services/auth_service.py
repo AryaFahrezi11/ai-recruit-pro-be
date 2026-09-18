@@ -44,6 +44,14 @@ def send_otp_email_sync(host: str, port: int, user: str, password: str, sender_e
     except Exception as e:
         print(f"❌ Failed to send OTP email: {e}")
 
+def is_otp_expired(expires_at: datetime | None) -> bool:
+    if not expires_at:
+        return True
+    now = datetime.now(timezone.utc)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return now > expires_at
+
 class AuthService:
     """
     Service untuk autentikasi user dan manajemen akun.
@@ -232,7 +240,7 @@ class AuthService:
         if not user.otp_code or user.otp_code != otp_code:
             raise HTTPException(status_code=400, detail="Kode OTP salah. Silakan periksa kembali email Anda.")
 
-        if not user.otp_expires_at or datetime.now(timezone.utc) > user.otp_expires_at:
+        if not user.otp_expires_at or is_otp_expired(user.otp_expires_at):
             raise HTTPException(status_code=400, detail="Kode OTP sudah kadaluarsa. Silakan minta kode OTP baru.")
 
         # OTP Benar, aktifkan akun
@@ -323,7 +331,7 @@ class AuthService:
         if not user.otp_code or user.otp_code != otp_code:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kode OTP salah. Silakan periksa kembali email Anda.")
 
-        if not user.otp_expires_at or datetime.now(timezone.utc) > user.otp_expires_at:
+        if not user.otp_expires_at or is_otp_expired(user.otp_expires_at):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kode OTP sudah kadaluarsa. Silakan minta kode OTP baru.")
 
         return {
@@ -342,7 +350,7 @@ class AuthService:
         if not user.otp_code or user.otp_code != otp_code:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kode OTP salah. Silakan periksa kembali email Anda.")
 
-        if not user.otp_expires_at or datetime.now(timezone.utc) > user.otp_expires_at:
+        if not user.otp_expires_at or is_otp_expired(user.otp_expires_at):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kode OTP sudah kadaluarsa. Silakan minta kode OTP baru.")
 
         # Update password & bersihkan OTP

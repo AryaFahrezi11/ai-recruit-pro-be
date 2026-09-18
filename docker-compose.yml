@@ -48,7 +48,7 @@ services:
       # Koneksi database internal via jaringan Docker ke container 'db'
       - DATABASE_URL=mysql+aiomysql://${MYSQL_USER:-airecruit_user}:${MYSQL_PASSWORD:-userpassword_secret123}@db:3306/${MYSQL_DATABASE:-airecruitpro}
       - SECRET_KEY=${SECRET_KEY:-ganti-dengan-secret-key-yang-sangat-panjang-dan-acak-12345}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - FRONTEND_URL=${FRONTEND_URL:-https://airecruit-pro.com}
       - DEBUG=False
       # Penyimpanan Cloud (Cloudflare R2 / Cloudinary)
       - R2_ACCOUNT_ID=${R2_ACCOUNT_ID:-}

@@ -24,7 +24,7 @@ async def get_public_config(db: AsyncSession = Depends(get_db)):
     if _config_cache is not None and (now - _config_cache_time) < CONFIG_CACHE_TTL:
         return _config_cache
 
-    keys = ["maintenance_mode", "seo_title", "seo_description", "admin_email", "smtp_from", "smtp_user", "support_whatsapp", "lokasi_kantor_pusat"]
+    keys = ["maintenance_mode", "seo_title", "seo_description", "seo_keywords", "admin_email", "smtp_from", "smtp_user", "support_whatsapp", "lokasi_kantor_pusat"]
     result = await db.execute(select(SystemSetting).where(SystemSetting.key.in_(keys)))
     settings = result.scalars().all()
     
@@ -32,6 +32,7 @@ async def get_public_config(db: AsyncSession = Depends(get_db)):
         "maintenance_mode": False,
         "seo_title": "AI Recruit Pro",
         "seo_description": "Platform Rekrutmen Cerdas Berbasis AI",
+        "seo_keywords": "AI Recruit Pro, airecruitpro, airecruit-pro, rekrutmen AI, platform rekrutmen, applicant tracking system, screening CV otomatis",
         "admin_email": ""
     }
     
@@ -45,7 +46,7 @@ async def get_public_config(db: AsyncSession = Depends(get_db)):
         
         if s.key == "maintenance_mode":
             config["maintenance_mode"] = val == True or str(val).lower() == "true"
-        elif s.key in ["seo_title", "seo_description"]:
+        elif s.key in ["seo_title", "seo_description", "seo_keywords"]:
             config[s.key] = val
 
     # Ambil email admin terdaftar dari system_settings

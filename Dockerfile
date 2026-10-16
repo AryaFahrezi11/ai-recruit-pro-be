@@ -41,4 +41,4 @@ COPY . .
 EXPOSE 8000
 
 # Jalankan preload model saat container start, lalu jalankan Uvicorn (hemat space build image)
-CMD ["sh", "-c", "python preload_models.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]
+CMD ["sh", "-c", "python preload_models.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*' --workers 1"]

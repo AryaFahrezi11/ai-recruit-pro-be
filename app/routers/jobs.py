@@ -154,6 +154,7 @@ async def get_my_jobs(current_user: dict = Depends(get_current_user), db: AsyncS
 
 
 @router.get("")
+@router.get("/", include_in_schema=False)
 async def get_jobs(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -485,6 +486,7 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_job(
     req: JobPostingCreate,
     request: Request,

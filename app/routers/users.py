@@ -112,13 +112,26 @@ async def get_profile(
         }
     elif role == "perusahaan" and user.perusahaan_profile:
         c = user.perusahaan_profile
-        has_data_diri = bool(
-            c.nama_perusahaan and c.nama_perusahaan.strip() and
-            c.nib_number and c.nib_number.strip() and
-            c.hr_name and c.hr_name.strip() and
-            c.hr_whatsapp and c.hr_whatsapp.strip()
-        )
-        has_dokumen = bool(c.nib_document_url and c.hr_id_card_url)
+        user_email_clean = (user.email or "").strip().lower()
+        is_gmail = user_email_clean.endswith("@gmail.com") or user_email_clean.endswith("@googlemail.com")
+
+        if is_gmail:
+            has_data_diri = bool(
+                c.nama_perusahaan and c.nama_perusahaan.strip() and
+                c.nib_number and c.nib_number.strip() and
+                c.hr_name and c.hr_name.strip() and
+                c.hr_whatsapp and c.hr_whatsapp.strip()
+            )
+            has_dokumen = bool(c.nib_document_url and c.hr_id_card_url)
+        else:
+            # Email perusahaan resmi: NIB opsional, langsung aktif
+            has_data_diri = bool(
+                c.nama_perusahaan and c.nama_perusahaan.strip() and
+                c.hr_name and c.hr_name.strip() and
+                c.hr_whatsapp and c.hr_whatsapp.strip()
+            )
+            has_dokumen = bool(c.hr_id_card_url)
+
         has_completed_profile = has_data_diri and has_dokumen
 
         response["profil"] = {
@@ -332,16 +345,39 @@ async def update_profile(
             if "hr_whatsapp" in form: profile.hr_whatsapp = str(form["hr_whatsapp"])
             if "hr_position" in form: profile.hr_position = str(form["hr_position"])
             
-            if "nib_file" in form and hasattr(form["nib_file"], "filename"):
+            if "nib_file" in form and hasattr(form["nib_file"], "filename") and form["nib_file"].filename:
                 profile.nib_document_url = save_upload(form["nib_file"])  # type: ignore
                 
-            if "id_card_file" in form and hasattr(form["id_card_file"], "filename"):
+            if "id_card_file" in form and hasattr(form["id_card_file"], "filename") and form["id_card_file"].filename:
                 profile.hr_id_card_url = save_upload(form["id_card_file"])  # type: ignore
 
-            # Reset status back to PENDING upon updating profile
-            profile.status = "PENDING"
-            profile.rejection_reason = None
-            profile.is_verified = False
+            # Cek jenis email pendaftar (Gmail vs Email Domain Perusahaan)
+            user_res = await db.execute(select(User).where(User.id == user_id))
+            user_obj = user_res.scalars().first()
+            user_email_clean = (user_obj.email or "").strip().lower() if user_obj else ""
+            is_gmail = user_email_clean.endswith("@gmail.com") or user_email_clean.endswith("@googlemail.com")
+
+            if is_gmail:
+                # Pendaftaran Gmail: WAJIB unggah dokumen NIB/Izin usaha dan isi nomor NIB
+                if not profile.nib_document_url:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Pendaftaran menggunakan email Gmail wajib mengunggah dokumen NIB atau izin usaha resmi untuk diverifikasi manual oleh Admin."
+                    )
+                if not profile.nib_number or not profile.nib_number.strip():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Pendaftaran menggunakan email Gmail wajib mengisi nomor NIB / NPWP resmi."
+                    )
+
+                profile.status = "PENDING"
+                profile.rejection_reason = None
+                profile.is_verified = False
+            else:
+                # Email Domain Perusahaan Resmi: Bisa langsung jadi (VERIFIED)
+                profile.status = "VERIFIED"
+                profile.rejection_reason = None
+                profile.is_verified = True
         else:
             try:
                 data = await request.json()
@@ -351,8 +387,18 @@ async def update_profile(
             except Exception:
                 pass
             
+            user_res = await db.execute(select(User).where(User.id == user_id))
+            user_obj = user_res.scalars().first()
+            user_email_clean = (user_obj.email or "").strip().lower() if user_obj else ""
+            is_gmail = user_email_clean.endswith("@gmail.com") or user_email_clean.endswith("@googlemail.com")
+            
         await db.commit()
-        return {"message": "Profil perusahaan berhasil diupdate"}
+        return {
+            "message": "Profil perusahaan berhasil diupdate",
+            "is_verified": profile.is_verified,
+            "status": profile.status,
+            "is_gmail": is_gmail,
+        }
 
     elif role in ["kampus", "KAMPUS", "UNIVERSITAS", "universitas"]:
         result = await db.execute(select(KampusProfile).where(KampusProfile.user_id == user_id))
@@ -366,7 +412,7 @@ async def update_profile(
         nama_kampus = data.get("nama_kampus")
         alamat = data.get("alamat")
         website_url = data.get("website_url")
-        logo_url = save_base64_image(data.get("logo_url") or payload.get("logo_url") if "payload" in locals() else data.get("logo_url"))
+        logo_url = save_base64_image(data.get("logo_url"))
         akreditasi = data.get("akreditasi")
         nama_pic = data.get("nama_pic")
         jabatan_pic = data.get("jabatan_pic")

@@ -149,11 +149,12 @@ class AuthService:
             )
 
         # 1.1 Khusus Perusahaan: Cek keunikan domain email perusahaan (1 Perusahaan = 1 Perwakilan Terdaftar)
+        # Catatan: Gmail (@gmail.com, @googlemail.com) dan domain testing (.ac.id) dikecualikan dari cek domain unik
         if role == "perusahaan":
             email_domain = email.split("@")[-1].lower() if "@" in email else ""
-            # Kecualikan domain testing (.ac.id) agar leluasa untuk keperluan pengujian
             is_testing_domain = email_domain.endswith(".ac.id") or email_domain == "ac.id"
-            if email_domain and not is_testing_domain:
+            is_gmail_domain = email_domain in ["gmail.com", "googlemail.com"]
+            if email_domain and not is_testing_domain and not is_gmail_domain:
                 domain_query = select(User).where(
                     User.role == "perusahaan",
                     User.email.ilike(f"%@{email_domain}"),
@@ -261,13 +262,26 @@ class AuthService:
                 has_completed_profile = False
                 is_verified = False
             else:
-                has_data_diri = bool(
-                    prof.nama_perusahaan and prof.nama_perusahaan.strip() and
-                    prof.nib_number and prof.nib_number.strip() and
-                    prof.hr_name and prof.hr_name.strip() and
-                    prof.hr_whatsapp and prof.hr_whatsapp.strip()
-                )
-                has_dokumen = bool(prof.nib_document_url and prof.hr_id_card_url)
+                user_email_clean = (user.email or "").strip().lower()
+                is_gmail = user_email_clean.endswith("@gmail.com") or user_email_clean.endswith("@googlemail.com")
+
+                if is_gmail:
+                    has_data_diri = bool(
+                        prof.nama_perusahaan and prof.nama_perusahaan.strip() and
+                        prof.nib_number and prof.nib_number.strip() and
+                        prof.hr_name and prof.hr_name.strip() and
+                        prof.hr_whatsapp and prof.hr_whatsapp.strip()
+                    )
+                    has_dokumen = bool(prof.nib_document_url and prof.hr_id_card_url)
+                else:
+                    # Email domain perusahaan: NIB opsional, langsung aktif
+                    has_data_diri = bool(
+                        prof.nama_perusahaan and prof.nama_perusahaan.strip() and
+                        prof.hr_name and prof.hr_name.strip() and
+                        prof.hr_whatsapp and prof.hr_whatsapp.strip()
+                    )
+                    has_dokumen = bool(prof.hr_id_card_url)
+
                 has_completed_profile = has_data_diri and has_dokumen
                 is_verified = bool(prof.is_verified)
 
@@ -423,13 +437,26 @@ class AuthService:
                 has_completed_profile = False
                 is_verified = False
             else:
-                has_data_diri = bool(
-                    prof.nama_perusahaan and prof.nama_perusahaan.strip() and
-                    prof.nib_number and prof.nib_number.strip() and
-                    prof.hr_name and prof.hr_name.strip() and
-                    prof.hr_whatsapp and prof.hr_whatsapp.strip()
-                )
-                has_dokumen = bool(prof.nib_document_url and prof.hr_id_card_url)
+                user_email_clean = (user.email or "").strip().lower()
+                is_gmail = user_email_clean.endswith("@gmail.com") or user_email_clean.endswith("@googlemail.com")
+
+                if is_gmail:
+                    has_data_diri = bool(
+                        prof.nama_perusahaan and prof.nama_perusahaan.strip() and
+                        prof.nib_number and prof.nib_number.strip() and
+                        prof.hr_name and prof.hr_name.strip() and
+                        prof.hr_whatsapp and prof.hr_whatsapp.strip()
+                    )
+                    has_dokumen = bool(prof.nib_document_url and prof.hr_id_card_url)
+                else:
+                    # Email domain perusahaan: NIB opsional, langsung aktif
+                    has_data_diri = bool(
+                        prof.nama_perusahaan and prof.nama_perusahaan.strip() and
+                        prof.hr_name and prof.hr_name.strip() and
+                        prof.hr_whatsapp and prof.hr_whatsapp.strip()
+                    )
+                    has_dokumen = bool(prof.hr_id_card_url)
+
                 has_completed_profile = has_data_diri and has_dokumen
                 is_verified = bool(prof.is_verified)
 

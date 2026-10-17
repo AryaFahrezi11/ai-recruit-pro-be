@@ -376,7 +376,7 @@ class AdminService:
 
     async def get_pending_companies(self, search: Optional[str] = None):
         """Mendapatkan daftar perusahaan yang belum diverifikasi"""
-        query = select(PerusahaanProfile).where(PerusahaanProfile.is_verified == False)
+        query = select(PerusahaanProfile).options(selectinload(PerusahaanProfile.user)).where(PerusahaanProfile.is_verified == False)
         if search and search.strip():
             s = "%" + search.strip() + "%"
             query = query.where(
@@ -391,7 +391,38 @@ class AdminService:
             )
         result = await self.db.execute(query)
         companies = result.scalars().all()
-        return companies
+        items = []
+        for c in companies:
+            user_email = c.user.email if c.user else None
+            is_gmail = bool(user_email and (user_email.lower().endswith("@gmail.com") or user_email.lower().endswith("@googlemail.com")))
+            items.append({
+                "id": c.id,
+                "user_id": c.user_id,
+                "email": user_email,
+                "is_gmail": is_gmail,
+                "nama_perusahaan": c.nama_perusahaan,
+                "industri": c.industri,
+                "ukuran": c.ukuran,
+                "deskripsi": c.deskripsi,
+                "alamat": c.alamat,
+                "kota": c.kota,
+                "provinsi": c.provinsi,
+                "website_url": c.website_url,
+                "logo_url": c.logo_url,
+                "no_telepon": c.no_telepon,
+                "tahun_berdiri": c.tahun_berdiri,
+                "nib_number": c.nib_number,
+                "nib_document_url": c.nib_document_url,
+                "hr_name": c.hr_name,
+                "hr_whatsapp": c.hr_whatsapp,
+                "hr_position": c.hr_position,
+                "hr_id_card_url": c.hr_id_card_url,
+                "is_verified": c.is_verified,
+                "is_banned": c.user.is_banned if c.user else False,
+                "status": c.status or ("VERIFIED" if c.is_verified else "PENDING"),
+                "rejection_reason": c.rejection_reason,
+            })
+        return items
 
     async def verify_company(self, company_id: str):
         """Memverifikasi perusahaan berdasarkan profile ID"""
